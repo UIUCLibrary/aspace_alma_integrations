@@ -22,7 +22,7 @@ en:
         no_mms: "No MMS ID provided for this Resource."
       marc_headings:
         aspace: ArchivesSpace MARC
-        aspace_note: "This record will be pushed to Alma. The 008/00-05 (Date Entered on File) has been preserved from the existing Alma record."
+        aspace_note: "The ArchivesSpace MARC record below will be pushed to Alma. The 008/00-05 (Date Entered on File) has been preserved from the existing Alma record."
         aspace_note_fields: "The following fields have also been carried over from Alma: %{fields}."
         aspace_note_config: "To change which additional fields are preserved, update AppConfig[:alma_marc_fields_to_preserve] in your config.rb."
         alma: Alma MARC
