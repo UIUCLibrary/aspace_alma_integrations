@@ -25,16 +25,15 @@
         </div>
       </div>
     </div>
-
+    <% preserved_fields = AppConfig.respond_to?(:alma_marc_fields_to_preserve) ? AppConfig[:alma_marc_fields_to_preserve] : [] %>
+    <p class="help-block" id="aspace-marc-note">
+      <%= I18n.t("plugins.alma_integrations.marc_headings.aspace_note") %>
+      <% if preserved_fields.any? %>
+        <%= I18n.t("plugins.alma_integrations.marc_headings.aspace_note_fields", :fields => preserved_fields.join(', ')) %>
+      <% end %>
+      <%= I18n.t("plugins.alma_integrations.marc_headings.aspace_note_config") %>
+    </p>
     <div class="row">
-      <% preserved_fields = AppConfig.respond_to?(:alma_marc_fields_to_preserve) ? AppConfig[:alma_marc_fields_to_preserve] : [] %>
-      <p class="help-block" id="aspace-marc-note">
-        <%= I18n.t("plugins.alma_integrations.marc_headings.aspace_note") %>
-        <% if preserved_fields.any? %>
-          <%= I18n.t("plugins.alma_integrations.marc_headings.aspace_note_fields", :fields => preserved_fields.join(', ')) %>
-        <% end %>
-        <%= I18n.t("plugins.alma_integrations.marc_headings.aspace_note_config") %>
-      </p>
       <div class="col-md-6">
         <h4><%= I18n.t("plugins.alma_integrations.marc_headings.aspace") %></h4>
 
