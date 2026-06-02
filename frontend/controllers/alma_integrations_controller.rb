@@ -2,7 +2,7 @@ require 'advanced_query_builder'
 
 class AlmaIntegrationsController < ApplicationController
 
-  set_access_control "view_repository" => [:index, :search, :add_bibs, :add_holdings]
+  set_access_control "view_repository" => [:index, :search, :add_bibs, :add_holdings, :add_items]
 
   def index
   end
@@ -16,6 +16,10 @@ class AlmaIntegrationsController < ApplicationController
     params['ref'] = params['resource']['ref'] if params['ref'].nil?
     @results = do_search(params)
     @holdings = AppConfig[:alma_holdings] if params['record_type'] == 'holdings'
+    if params['record_type'] == 'items'
+      @holdings = integrator.search_holdings(@results['mms'])
+      @aspace_containers = integrator.get_resource_top_containers(params['ref'])
+    end
   end
 
   def add_bibs
@@ -25,6 +29,10 @@ class AlmaIntegrationsController < ApplicationController
   # debugging adding holdings
   def add_holdings
     post_holdings(params)
+  end
+
+  def add_items
+    post_items(params)
   end
 
   private
@@ -98,6 +106,48 @@ class AlmaIntegrationsController < ApplicationController
   	end
 
   	redirect_to :action => :index
+  end
+
+  def post_items(params)
+    mms        = params['mms']
+    holding_id = params['holding_id']
+    refs       = Array(params['container_refs'])
+
+    if mms.nil? || holding_id.nil? || refs.empty?
+      flash[:error] = I18n.t("plugins.alma_integrations.errors.add_items_missing_params")
+      redirect_to :action => :index
+      return
+    end
+
+    successes = 0
+    errors    = []
+
+    refs.each do |ref|
+      container = integrator.get_top_container(ref)
+      next if container.nil?
+
+      data = RecordBuilder.new.build_item(
+        holding_id,
+        container['barcode'],
+        container['description'],
+        container['profile']
+      )
+      response = integrator.post_item(mms, holding_id, data)
+
+      if response.is_a?(Net::HTTPSuccess)
+        successes += 1
+      else
+        errors << "#{container['description']}: #{response.body}"
+      end
+    end
+
+    if errors.empty?
+      flash[:success] = I18n.t("plugins.alma_integrations.success.items_added", :count => successes)
+    else
+      flash[:error] = errors.join('; ')
+    end
+
+    redirect_to :action => :index
   end
 
   def post_holdings(params)

@@ -9,6 +9,7 @@ en:
         location_name: Location Name
       actions:
         add: Add
+        add_items: Add Selected Items to Alma
         create: Create
         push: Push to Alma
         search: Search
@@ -20,6 +21,21 @@ en:
       errors:
         no_marc: "No MARC record found in ArchivesSpace, search terminated"
         no_mms: "No MMS ID provided for this Resource."
+        no_holdings_for_items: "No holdings found for this BIB. Add a holding before adding items."
+        add_items_missing_params: "Error: MMS ID, holding ID, and at least one container must be provided."
+      success:
+        items_added:
+          one: "1 item successfully added to Alma."
+          other: "%{count} items successfully added to Alma."
+      add_items:
+        heading: Add Items to Alma
+        holding: Target Holding
+        containers: ASpace Containers Not Yet in Alma
+        description: Description
+        barcode: Barcode
+        profile: Container Profile
+        select_all: Select all containers
+        all_synced: All ASpace top containers for this resource are already present in Alma.
       marc_headings:
         aspace: ArchivesSpace MARC
         aspace_note: "The ArchivesSpace MARC record below will be pushed to Alma. The 008/00-05 (Date Entered on File) has been preserved from the existing Alma record."

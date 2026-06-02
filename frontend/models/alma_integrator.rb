@@ -221,4 +221,79 @@ class AlmaIntegrator
 
     response
   end
+
+  def post_item(mms, holding_id, data)
+    uri = URI("#{@baseurl}/#{mms}/holdings/#{holding_id}/items")
+    uri.query = URI.encode_www_form({:apikey => @key})
+    response = AlmaRequester.new.post(uri, data, :use_ssl => true)
+
+    response
+  end
+
+  def get_top_container(ref)
+    obj = JSONModel::HTTP::get_json(ref, {'resolve[]' => 'container_profile'})
+    return nil if obj.nil?
+
+    type      = obj['type']
+    indicator = obj['indicator']
+    barcode   = obj['barcode']
+    profile   = unless obj['container_profile'].nil?
+      obj['container_profile']['_resolved']&.dig('name')
+    end
+
+    {
+      'ref'         => ref,
+      'type'        => type,
+      'indicator'   => indicator,
+      'barcode'     => barcode,
+      'profile'     => profile,
+      'description' => [type&.capitalize, indicator].compact.join(' ')
+    }
+  end
+
+  def get_resource_top_containers(resource_ref)
+    containers = []
+
+    aq = AdvancedQueryBuilder.new
+    aq.and('collection_uri_u_sstr', resource_ref)
+    url = "#{JSONModel(:top_container).uri_for("")}/search"
+
+    offset = 0
+    loop do
+      obj = JSONModel::HTTP::get_json(url, {
+        'filter' => aq.build.to_json,
+        'offset' => offset,
+        'limit'  => 50
+      })
+
+      docs = obj['response']['docs']
+      break if docs.nil? || docs.empty?
+
+      docs.each do |doc|
+        type      = doc['type_u_sstr']&.first
+        indicator = doc['indicator_u_sstr']&.first
+        barcode   = doc['barcode_u_sstr']&.first
+        profile   = unless doc['container_profile_display_string_u_sstr'].nil?
+          doc['container_profile_display_string_u_sstr'].first
+            .partition('[')
+            .first
+            .rstrip
+        end
+
+        containers << {
+          'ref'       => doc['uri'],
+          'type'      => type,
+          'indicator' => indicator,
+          'barcode'   => barcode,
+          'profile'   => profile,
+          'description' => [type&.capitalize, indicator].compact.join(' ')
+        }
+      end
+
+      offset += docs.length
+      break if containers.length >= obj['response']['numFound'].to_i
+    end
+
+    containers.sort_by { |c| [c['type'].to_s, c['indicator'].to_s.rjust(10, '0')] }
+  end
 end
