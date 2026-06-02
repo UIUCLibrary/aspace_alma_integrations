@@ -1,6 +1,5 @@
 <%
-  existing_barcodes = (results.dig('items') || []).map { |i| i['barcode'] }.compact
-  new_containers = @aspace_containers.reject { |c| existing_barcodes.include?(c['barcode']) }
+  @alma_items_index ||= {}
 %>
 
 <section id="add_items" class="subrecord-form-dummy">
@@ -10,12 +9,13 @@
       <p><%= I18n.t("plugins.alma_integrations.errors.no_mms") %></p>
     <% elsif @holdings.nil? || @holdings['holdings'].nil? || @holdings['holdings'].empty? %>
       <p><%= I18n.t("plugins.alma_integrations.errors.no_holdings_for_items") %></p>
-    <% elsif new_containers.empty? %>
-      <p><%= I18n.t("plugins.alma_integrations.add_items.all_synced") %></p>
+    <% elsif @aspace_containers.nil? || @aspace_containers.empty? %>
+      <p><%= I18n.t("plugins.alma_integrations.add_items.no_containers") %></p>
     <% else %>
       <%= form_tag({:controller => :alma_integrations, :action => :add_items}, {:class => "form-horizontal", :id => "add_items_form", :method => :post}) do |f| %>
         <input type="hidden" name="mms" value="<%= @results['mms'] %>"/>
         <input type="hidden" name="ref" value="<%= @results['ref'] %>"/>
+        <input type="hidden" name="existing_items" value="<%= @alma_items_index.to_json.gsub('"', '&quot;') %>"/>
         <div class="subrecord-form-fields">
           <div class="form-group required">
             <label class="control-label col-sm-2" for="holding_id"><%= I18n.t("plugins.alma_integrations.add_items.holding") %></label>
@@ -25,6 +25,21 @@
                   <option value="<%= holding['id'] %>"><%= holding['name'] %> (<%= holding['code'] %>)</option>
                 <% end %>
               </select>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="control-label col-sm-2"><%= I18n.t("plugins.alma_integrations.add_items.duplicate_action") %></label>
+            <div class="col-sm-8">
+              <label class="radio-inline">
+                <input type="radio" name="duplicate_action" value="overwrite" checked="checked"/>
+                <%= I18n.t("plugins.alma_integrations.add_items.overwrite") %>
+              </label>
+              <label class="radio-inline">
+                <input type="radio" name="duplicate_action" value="skip"/>
+                <%= I18n.t("plugins.alma_integrations.add_items.skip") %>
+              </label>
+              <p class="help-block"><%= I18n.t("plugins.alma_integrations.add_items.duplicate_action_help") %></p>
             </div>
           </div>
 
@@ -40,17 +55,26 @@
                     <th><%= I18n.t("plugins.alma_integrations.add_items.description") %></th>
                     <th><%= I18n.t("plugins.alma_integrations.add_items.barcode") %></th>
                     <th><%= I18n.t("plugins.alma_integrations.add_items.profile") %></th>
+                    <th><%= I18n.t("plugins.alma_integrations.add_items.status") %></th>
                   </tr>
                 </thead>
                 <tbody>
-                  <% new_containers.each do |container| %>
-                    <tr>
+                  <% @aspace_containers.each do |container| %>
+                    <% in_alma = container['barcode'].present? && @alma_items_index.key?(container['barcode']) %>
+                    <tr class="<%= in_alma ? 'warning' : '' %>">
                       <td>
                         <input type="checkbox" name="container_refs[]" value="<%= container['ref'] %>" class="container-checkbox"/>
                       </td>
                       <td><%= container['description'] %></td>
                       <td><%= container['barcode'] %></td>
                       <td><%= container['profile'] %></td>
+                      <td>
+                        <% if in_alma %>
+                          <span class="label label-warning"><%= I18n.t("plugins.alma_integrations.add_items.in_alma") %></span>
+                        <% else %>
+                          <span class="label label-success"><%= I18n.t("plugins.alma_integrations.add_items.new_item") %></span>
+                        <% end %>
+                      </td>
                     </tr>
                   <% end %>
                 </tbody>

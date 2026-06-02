@@ -25,17 +25,27 @@ en:
         add_items_missing_params: "Error: MMS ID, holding ID, and at least one container must be provided."
       success:
         items_added:
-          one: "1 item successfully added to Alma."
-          other: "%{count} items successfully added to Alma."
+          one: "1 item successfully added to or updated in Alma."
+          other: "%{count} items successfully added to or updated in Alma."
+        items_skipped:
+          one: "1 item skipped (already in Alma)."
+          other: "%{count} items skipped (already in Alma)."
       add_items:
         heading: Add Items to Alma
-        holding: Target Holding
-        containers: ASpace Containers Not Yet in Alma
+        holding: Target Holding (for new items)
+        containers: ASpace Top Containers
         description: Description
         barcode: Barcode
         profile: Container Profile
         select_all: Select all containers
-        all_synced: All ASpace top containers for this resource are already present in Alma.
+        status: Alma Status
+        in_alma: In Alma
+        new_item: New
+        no_containers: No top containers found in ArchivesSpace for this resource.
+        duplicate_action: When item already exists in Alma
+        overwrite: Overwrite existing item
+        skip: Skip existing item
+        duplicate_action_help: "Items highlighted in yellow already have a matching barcode in Alma. Choose whether to overwrite them with ASpace data or leave them unchanged."
       marc_headings:
         aspace: ArchivesSpace MARC
         aspace_note: "The ArchivesSpace MARC record below will be pushed to Alma. The 008/00-05 (Date Entered on File) has been preserved from the existing Alma record."

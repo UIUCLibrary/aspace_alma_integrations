@@ -19,6 +19,7 @@ class AlmaIntegrationsController < ApplicationController
     if params['record_type'] == 'items'
       @holdings = integrator.search_holdings(@results['mms'])
       @aspace_containers = integrator.get_resource_top_containers(params['ref'])
+      @alma_items_index = integrator.get_all_items_index(@results['mms'])
     end
   end
 
@@ -109,9 +110,11 @@ class AlmaIntegrationsController < ApplicationController
   end
 
   def post_items(params)
-    mms        = params['mms']
-    holding_id = params['holding_id']
-    refs       = Array(params['container_refs'])
+    mms              = params['mms']
+    holding_id       = params['holding_id']
+    refs             = Array(params['container_refs'])
+    duplicate_action = params['duplicate_action'] || 'overwrite'
+    existing_items   = JSON.parse(params['existing_items'] || '{}')
 
     if mms.nil? || holding_id.nil? || refs.empty?
       flash[:error] = I18n.t("plugins.alma_integrations.errors.add_items_missing_params")
@@ -120,19 +123,36 @@ class AlmaIntegrationsController < ApplicationController
     end
 
     successes = 0
+    skipped   = 0
     errors    = []
 
     refs.each do |ref|
       container = integrator.get_top_container(ref)
       next if container.nil?
 
+      barcode  = container['barcode']
+      existing = barcode.present? ? existing_items[barcode] : nil
+
+      if existing && duplicate_action == 'skip'
+        skipped += 1
+        next
+      end
+
+      # For overwrite, keep the item in its current holding; for new items,
+      # use the holding_id selected in the form.
+      target_holding_id = existing ? existing['holding_id'] : holding_id
       data = RecordBuilder.new.build_item(
-        holding_id,
-        container['barcode'],
+        target_holding_id,
+        barcode,
         container['description'],
         container['profile']
       )
-      response = integrator.post_item(mms, holding_id, data)
+
+      response = if existing
+        integrator.update_item(mms, existing['holding_id'], existing['pid'], data)
+      else
+        integrator.post_item(mms, holding_id, data)
+      end
 
       if response.is_a?(Net::HTTPSuccess)
         successes += 1
@@ -148,9 +168,14 @@ class AlmaIntegrationsController < ApplicationController
       end
     end
 
+    messages = []
+    messages << I18n.t("plugins.alma_integrations.success.items_added", :count => successes) if successes > 0
+    messages << I18n.t("plugins.alma_integrations.success.items_skipped", :count => skipped) if skipped > 0
+
     if errors.empty?
-      flash[:success] = I18n.t("plugins.alma_integrations.success.items_added", :count => successes)
+      flash[:success] = messages.join(' ') unless messages.empty?
     else
+      flash[:success] = messages.join(' ') unless messages.empty?
       flash[:error] = errors.join('; ')
     end
 
