@@ -161,7 +161,7 @@ class AlmaIntegrationsController < ApplicationController
           doc = Nokogiri::XML(response.body)
           error_node = doc.at_css('errorMessage') || doc.at_css('errorCode')
           error_node ? error_node.text : response.body
-        rescue
+        rescue StandardError
           response.body
         end
         errors << "#{container['description']}: #{error_msg}"

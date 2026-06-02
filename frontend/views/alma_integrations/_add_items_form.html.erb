@@ -15,7 +15,7 @@
       <%= form_tag({:controller => :alma_integrations, :action => :add_items}, {:class => "form-horizontal", :id => "add_items_form", :method => :post}) do |f| %>
         <input type="hidden" name="mms" value="<%= @results['mms'] %>"/>
         <input type="hidden" name="ref" value="<%= @results['ref'] %>"/>
-        <input type="hidden" name="existing_items" value="<%= @alma_items_index.to_json.gsub('"', '&quot;') %>"/>
+        <input type="hidden" name="existing_items" value="<%= html_escape(@alma_items_index.to_json) %>"/>
         <div class="subrecord-form-fields">
           <div class="form-group required">
             <label class="control-label col-sm-2" for="holding_id"><%= I18n.t("plugins.alma_integrations.add_items.holding") %></label>
