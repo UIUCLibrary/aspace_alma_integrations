@@ -30,9 +30,9 @@ class RecordBuilder
           xml.holding_id holding_id
         }
         xml.item_data {
-          xml.barcode barcode unless barcode.nil? || barcode.empty?
+          xml.barcode barcode if barcode.present?
           xml.description description
-          xml.internal_note_2 profile unless profile.nil? || profile.empty?
+          xml.internal_note_2 profile if profile.present?
         }
       }
     end

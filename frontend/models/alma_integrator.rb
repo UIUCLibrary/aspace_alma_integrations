@@ -294,6 +294,6 @@ class AlmaIntegrator
       break if containers.length >= obj['response']['numFound'].to_i
     end
 
-    containers.sort_by { |c| [c['type'].to_s, c['indicator'].to_s.rjust(10, '0')] }
+    containers.sort_by { |c| [c['type'].to_s, c['indicator'].to_s.scan(/\d+/).first.to_i, c['indicator'].to_s] }
   end
 end

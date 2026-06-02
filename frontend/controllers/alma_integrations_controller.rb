@@ -137,7 +137,14 @@ class AlmaIntegrationsController < ApplicationController
       if response.is_a?(Net::HTTPSuccess)
         successes += 1
       else
-        errors << "#{container['description']}: #{response.body}"
+        error_msg = begin
+          doc = Nokogiri::XML(response.body)
+          error_node = doc.at_css('errorMessage') || doc.at_css('errorCode')
+          error_node ? error_node.text : response.body
+        rescue
+          response.body
+        end
+        errors << "#{container['description']}: #{error_msg}"
       end
     end
 

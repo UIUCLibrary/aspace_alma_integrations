@@ -1,5 +1,5 @@
 <%
-  existing_barcodes = results['items'].map { |i| i['barcode'] }.compact
+  existing_barcodes = (results.dig('items') || []).map { |i| i['barcode'] }.compact
   new_containers = @aspace_containers.reject { |c| existing_barcodes.include?(c['barcode']) }
 %>
 
@@ -70,9 +70,10 @@
 </section>
 
 <script>
-  document.getElementById('select_all_containers').addEventListener('change', function() {
+  var selectAll = document.getElementById('select_all_containers');
+  selectAll.addEventListener('change', function() {
     document.querySelectorAll('.container-checkbox').forEach(function(cb) {
-      cb.checked = document.getElementById('select_all_containers').checked;
+      cb.checked = selectAll.checked;
     });
   });
 </script>
