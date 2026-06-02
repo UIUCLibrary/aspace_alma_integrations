@@ -43,7 +43,23 @@ class AlmaIntegrator
     alma
   end
 
-  def sync_bibs(aspace, alma)
+  # Prepares the ASpace-generated MARC record for overlay into Alma by preserving
+  # specific fields from the existing Alma record that ArchivesSpace does not manage.
+  #
+  # The MARC 008 control field positions 00-05 encode the "Date Entered on File" —
+  # the six-digit date (YYMMDD) when the record was first created in the system.
+  # ArchivesSpace regenerates this date each time it produces MARC output, so without
+  # intervention, pushing an ASpace record to Alma would silently overwrite the original
+  # Alma creation date with today's date. This method always preserves Alma's 008/00-05
+  # in the outgoing record.
+  #
+  # Additionally, any MARC field tags listed in AppConfig[:alma_marc_fields_to_preserve]
+  # (e.g. ['035'] to retain OCLC system control numbers) are carried over wholesale from
+  # the Alma record into the ASpace record, replacing any instances of those fields that
+  # ASpace may have generated. This allows institutions to protect locally significant
+  # Alma-managed fields from being overwritten on push.
+  def preserve_alma_marc_fields(aspace, alma)
+    # Preserve 008/00-05 (Date Entered on File) from Alma
     aspace_008 = aspace['content'].at_css('controlfield[@tag="008"]')
     alma_008 = alma['content'].at_css('controlfield[@tag="008"]')
 
@@ -51,6 +67,18 @@ class AlmaIntegrator
       controlfield_string = alma_008.text[0,6]
       controlfield_string += aspace_008.text[6..-1]
       aspace['content'].at_css('controlfield[@tag="008"]').content = controlfield_string
+    end
+
+    # Preserve any additional fields configured by the institution
+    preserved_fields = AppConfig.has_key?(:alma_marc_fields_to_preserve) ? AppConfig[:alma_marc_fields_to_preserve] : []
+    preserved_fields.each do |tag|
+      # Remove any instances of this field from the ASpace record
+      aspace['content'].css("datafield[@tag='#{tag}'], controlfield[@tag='#{tag}']").each(&:remove)
+
+      # Copy all instances of this field from the Alma record
+      alma['content'].css("datafield[@tag='#{tag}'], controlfield[@tag='#{tag}']").each do |field|
+        aspace['content'].add_child(field.dup)
+      end
     end
 
     return aspace['content'].to_xml(indent: 2)
@@ -73,10 +101,14 @@ class AlmaIntegrator
       alma = get_alma_bib(mms)
       if alma.has_key?('error')
         results['alma'] = {'error' => alma['error']}
+        results['alma_marc'] = nil
         results['marc'] = aspace['content'].to_xml(indent: 2)
+        results['aspace_marc'] = results['marc']
       else
         results['alma'] = {'success' => mms}
-        results['marc'] = sync_bibs(aspace, alma)
+        results['alma_marc'] = alma['content'].to_xml(indent: 2)
+        results['marc'] = preserve_alma_marc_fields(aspace, alma)
+        results['aspace_marc'] = results['marc']
       end
     end
 
