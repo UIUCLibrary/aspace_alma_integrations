@@ -9,6 +9,7 @@ en:
         location_name: Location Name
       actions:
         add: Add
+        add_items: Add Selected Items to Alma
         create: Create
         push: Push to Alma
         search: Search
@@ -20,6 +21,31 @@ en:
       errors:
         no_marc: "No MARC record found in ArchivesSpace, search terminated"
         no_mms: "No MMS ID provided for this Resource."
+        no_holdings_for_items: "No holdings found for this BIB. Add a holding before adding items."
+        add_items_missing_params: "Error: MMS ID, holding ID, and at least one container must be provided."
+      success:
+        items_added:
+          one: "1 item successfully added to or updated in Alma."
+          other: "%{count} items successfully added to or updated in Alma."
+        items_skipped:
+          one: "1 item skipped (already in Alma)."
+          other: "%{count} items skipped (already in Alma)."
+      add_items:
+        heading: Add Items to Alma
+        holding: Target Holding (for new items)
+        containers: ASpace Top Containers
+        description: Description
+        barcode: Barcode
+        profile: Container Profile
+        select_all: Select all containers
+        status: Alma Status
+        in_alma: In Alma
+        new_item: New
+        no_containers: No top containers found in ArchivesSpace for this resource.
+        duplicate_action: When item already exists in Alma
+        overwrite: Overwrite existing item
+        skip: Skip existing item
+        duplicate_action_help: "Items highlighted in yellow already have a matching barcode in Alma. Choose whether to overwrite them with ASpace data or leave them unchanged."
       marc_headings:
         aspace: ArchivesSpace MARC
         aspace_note: "The ArchivesSpace MARC record below will be pushed to Alma. The 008/00-05 (Date Entered on File) has been preserved from the existing Alma record."

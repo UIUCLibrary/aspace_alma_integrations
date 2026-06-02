@@ -221,4 +221,129 @@ class AlmaIntegrator
 
     response
   end
+
+  def post_item(mms, holding_id, data)
+    uri = URI("#{@baseurl}/#{mms}/holdings/#{holding_id}/items")
+    uri.query = URI.encode_www_form({:apikey => @key})
+    response = AlmaRequester.new.post(uri, data, :use_ssl => true)
+
+    response
+  end
+
+  def update_item(mms, holding_id, pid, data)
+    uri = URI("#{@baseurl}/#{mms}/holdings/#{holding_id}/items/#{pid}")
+    uri.query = URI.encode_www_form({:apikey => @key})
+    response = AlmaRequester.new.put(uri, data, :use_ssl => true)
+
+    response
+  end
+
+  # Returns a hash keyed by barcode for every item currently held in Alma for
+  # the given BIB, paging through all results. Used to detect duplicates before
+  # creating or overwriting item records.
+  def get_all_items_index(mms)
+    index = {}
+    return index if mms.nil?
+
+    offset = 0
+    loop do
+      uri = URI("#{@baseurl}/#{mms}/holdings/ALL/items")
+      uri.query = URI.encode_www_form({:apikey => @key, :format => 'json', :offset => offset, :limit => 50})
+      response = AlmaRequester.new.get(uri, :use_ssl => true)
+      break unless response.is_a?(Net::HTTPSuccess)
+
+      obj   = JSON.parse(response.body)
+      total = obj['total_record_count'].to_i
+      items = obj['item'] || []
+      break if items.empty?
+
+      items.each do |item|
+        item_data    = item['item_data']
+        holding_data = item['holding_data']
+        barcode      = item_data['barcode']
+        next if barcode.nil? || barcode.empty?
+
+        index[barcode] = {
+          'pid'        => item_data['pid'],
+          'holding_id' => holding_data['holding_id']
+        }
+      end
+
+      offset += items.length
+      break if offset >= total
+    end
+
+    index
+  end
+
+  def get_top_container(ref)
+    obj = JSONModel::HTTP::get_json(ref, {'resolve[]' => 'container_profile'})
+    return nil if obj.nil?
+
+    type      = obj['type']
+    indicator = obj['indicator']
+    barcode   = obj['barcode']
+    profile   = unless obj['container_profile'].nil?
+      obj['container_profile']['_resolved']&.dig('name')
+    end
+
+    # TODO: Verify that the description format "Type Indicator" (e.g. "Box 1")
+    # matches the description format used in existing Alma item records at UIUC.
+    # The ASpace top container model has no standalone description field; it is
+    # constructed here from container type + indicator.
+    {
+      'ref'         => ref,
+      'type'        => type,
+      'indicator'   => indicator,
+      'barcode'     => barcode,
+      'profile'     => profile,
+      'description' => [type&.capitalize, indicator].compact.join(' ')
+    }
+  end
+
+  def get_resource_top_containers(resource_ref)
+    containers = []
+
+    aq = AdvancedQueryBuilder.new
+    aq.and('collection_uri_u_sstr', resource_ref)
+    url = "#{JSONModel(:top_container).uri_for("")}/search"
+
+    offset = 0
+    loop do
+      obj = JSONModel::HTTP::get_json(url, {
+        'filter' => aq.build.to_json,
+        'offset' => offset,
+        'limit'  => 50
+      })
+
+      docs = obj['response']['docs']
+      break if docs.nil? || docs.empty?
+
+      docs.each do |doc|
+        type      = doc['type_u_sstr']&.first
+        indicator = doc['indicator_u_sstr']&.first
+        barcode   = doc['barcode_u_sstr']&.first
+        profile   = unless doc['container_profile_display_string_u_sstr'].nil?
+          doc['container_profile_display_string_u_sstr'].first
+            .partition('[')
+            .first
+            .rstrip
+        end
+
+        containers << {
+          'ref'       => doc['uri'],
+          'type'      => type,
+          'indicator' => indicator,
+          'barcode'   => barcode,
+          'profile'   => profile,
+          'description' => [type&.capitalize, indicator].compact.join(' ')
+        }
+      end
+
+      offset += docs.length
+      break if containers.length >= obj['response']['numFound'].to_i
+    end
+
+    containers.sort_by { |c| [c['type'].to_s, c['indicator'].to_s.scan(/\d+/).first&.to_i || 0, c['indicator'].to_s] }
+  end
 end
