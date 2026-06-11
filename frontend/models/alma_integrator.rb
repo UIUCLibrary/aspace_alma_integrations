@@ -75,9 +75,15 @@ class AlmaIntegrator
       # Remove any instances of this field from the ASpace record
       aspace['content'].css("datafield[@tag='#{tag}'], controlfield[@tag='#{tag}']").each(&:remove)
 
-      # Copy all instances of this field from the Alma record
+      # Copy all instances of this field from the Alma record, inserting each
+      # in the correct MARC numerical tag order rather than appending at the end
       alma['content'].css("datafield[@tag='#{tag}'], controlfield[@tag='#{tag}']").each do |field|
-        aspace['content'].add_child(field.dup)
+        next_field = aspace['content'].css("controlfield, datafield").find { |f| f['tag'].to_i > tag.to_i }
+        if next_field
+          next_field.add_previous_sibling(field.dup)
+        else
+          aspace['content'].add_child(field.dup)
+        end
       end
     end
 
