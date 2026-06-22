@@ -287,10 +287,6 @@ class AlmaIntegrator
       obj['container_profile']['_resolved']&.dig('name')
     end
 
-    # TODO: Verify that the description format "Type Indicator" (e.g. "Box 1")
-    # matches the description format used in existing Alma item records at UIUC.
-    # The ASpace top container model has no standalone description field; it is
-    # constructed here from container type + indicator.
     {
       'ref'         => ref,
       'type'        => type,
