@@ -331,12 +331,12 @@ class AlmaIntegrator
         end
 
         containers << {
-          'ref'       => doc['uri'],
-          'type'      => type,
-          'indicator' => indicator,
-          'barcode'   => barcode,
-          'profile'   => profile,
-          'description' => [type&.capitalize, indicator].compact.join(' ')
+          'ref'         => doc['uri'],
+          'type'        => type,
+          'indicator'   => indicator,
+          'barcode'     => barcode,
+          'profile'     => profile,
+          'description' => doc['display_string']
         }
       end
 
