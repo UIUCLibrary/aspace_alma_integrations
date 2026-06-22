@@ -34,7 +34,7 @@ en:
         heading: Add Items to Alma
         holding: Target Holding (for new items)
         containers: ASpace Top Containers
-        description: Description
+        description: Description (From ASpace)
         barcode: Barcode
         profile: Container Profile
         select_all: Select all containers
