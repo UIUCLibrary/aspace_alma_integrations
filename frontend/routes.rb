@@ -5,6 +5,7 @@ ArchivesSpace::Application.routes.draw do
       match('/plugins/alma_integrations/search' => 'alma_integrations#search', :via => [:post])
       match('/plugins/alma_integrations/add_bibs' => 'alma_integrations#add_bibs', :via => [:post])
       match('/plugins/alma_integrations/add_holdings' => 'alma_integrations#add_holdings', :via => [:post])
+      match('/plugins/alma_integrations/add_items' => 'alma_integrations#add_items', :via => [:post])
     end
   end
 end

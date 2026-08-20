@@ -21,6 +21,25 @@ class RecordBuilder
     data.to_xml
   end
 
+  def build_item(holding_id, barcode, description, profile)
+    doc = Nokogiri::XML('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>')
+
+    builder = Nokogiri::XML::Builder.with(doc) do |xml|
+      xml.item {
+        xml.holding_data {
+          xml.holding_id holding_id
+        }
+        xml.item_data {
+          xml.barcode barcode if barcode.present?
+          xml.description description
+          xml.internal_note_2 profile if profile.present?
+        }
+      }
+    end
+
+    builder.to_xml
+  end
+
   def build_holding(code, id)
     controlfield_string = Time.now.strftime("%y%m%d")
     controlfield_string += "2u^^^^8^^^4001uueng0000000"
