@@ -21,6 +21,20 @@ def marc_hash(xml_string)
   { 'content' => doc.at_css('record') }
 end
 
+RSpec.describe AlmaIntegrator, '#search_items' do
+  subject(:integrator) { described_class.new('http://example.com/bibs', 'dummy_key') }
+
+  context 'when mms is nil' do
+    it 'returns an empty results hash without making an HTTP request' do
+      expect(AlmaRequester).not_to receive(:new)
+      result = integrator.search_items(nil, 1)
+      expect(result['items']).to eq([])
+      expect(result['page']).to eq(1)
+      expect(result['offset']).to eq(0)
+    end
+  end
+end
+
 RSpec.describe AlmaIntegrator, '#preserve_alma_marc_fields' do
   subject(:integrator) { described_class.new('http://example.com/bibs', 'dummy_key') }
 
