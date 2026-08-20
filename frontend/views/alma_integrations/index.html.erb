@@ -3,12 +3,12 @@
 <div class="record-pane">
   <div class="row">
     <div class="col-md-12">
-      <%= render_aspace_partial :partial => "shared/flash_messages" %>
+      <%= render partial: "shared/flash_messages" %>
       <h2><%= I18n.t("plugins.alma_integrations.title") %></h2>
     </div>
   </div>
 
-  <%= render_aspace_partial :partial => "form" %>
+  <%= render partial: "form" %>
 </div>
 
 <script src="<%= "#{AppConfig[:frontend_prefix]}assets/alma_integrations.js" %>"></script>

@@ -39,7 +39,7 @@
               </tbody>
             </table>
 
-            <%= render_aspace_partial :partial => "items_pagination", :locals => {:results => results} %>
+            <%= render partial: "items_pagination", locals: { results: results } %>
           <% end %>
         </div>
       </div>
@@ -47,4 +47,4 @@
   </div>
 </section>
 
-<%= render_aspace_partial :partial => "add_items_form", :locals => {:results => results} %>
+<%= render partial: "add_items_form", locals: { results: results } %>
