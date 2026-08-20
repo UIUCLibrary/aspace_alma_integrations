@@ -236,6 +236,15 @@ class AlmaIntegrator
     response
   end
 
+  def get_alma_item(mms, holding_id, pid)
+    uri = URI("#{@baseurl}/#{mms}/holdings/#{holding_id}/items/#{pid}")
+    uri.query = URI.encode_www_form({:apikey => @key, :format => 'xml'})
+    response = AlmaRequester.new.get(uri, :use_ssl => true)
+    return nil unless response.is_a?(Net::HTTPSuccess)
+
+    Nokogiri::XML(response.body)
+  end
+
   def update_item(mms, holding_id, pid, data)
     uri = URI("#{@baseurl}/#{mms}/holdings/#{holding_id}/items/#{pid}")
     uri.query = URI.encode_www_form({:apikey => @key})

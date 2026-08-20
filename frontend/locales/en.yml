@@ -23,6 +23,8 @@ en:
         no_mms: "No MMS ID provided for this Resource."
         no_holdings_for_items: "No holdings found for this BIB. Add a holding before adding items."
         add_items_missing_params: "Error: MMS ID, holding ID, and at least one container must be provided."
+        fetch_item_failed: "Could not retrieve existing item from Alma. The item was not updated."
+        parse_item_failed: "Could not parse existing Alma item record. The item was not updated."
       success:
         items_added:
           one: "1 item successfully added to or updated in Alma."
