@@ -48,7 +48,7 @@
             </div>
           </div>
         </div>
-        <%= render_aspace_partial :partial => "add_bibs_form", :locals => {:results => results} %>
+        <%= render partial: "add_bibs_form", locals: { results: results } %>
       </div>
       <div class="col-md-6">
         <h4><%= I18n.t("plugins.alma_integrations.marc_headings.alma") %></h4>
