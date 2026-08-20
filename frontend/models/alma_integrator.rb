@@ -175,6 +175,8 @@ class AlmaIntegrator
   def search_items(mms,page)
     results = { 'page' => page, 'offset' => (page - 1) * 10, 'items' => [] }
 
+    return results if mms.nil?
+
 		uri = URI("#{@baseurl}/#{mms}/holdings/ALL/items")
 		uri.query = URI.encode_www_form({:apikey => @key, :format => 'json', :offset => results['offset']})
 		response = AlmaRequester.new.get(uri, :use_ssl => true)
