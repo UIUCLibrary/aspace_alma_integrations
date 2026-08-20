@@ -125,6 +125,7 @@ class AlmaIntegrationsController < ApplicationController
     successes = 0
     skipped   = 0
     errors    = []
+    builder   = RecordBuilder.new
 
     refs.each do |ref|
       container = integrator.get_top_container(ref)
@@ -141,12 +142,24 @@ class AlmaIntegrationsController < ApplicationController
       # For overwrite, keep the item in its current holding; for new items,
       # use the holding_id selected in the form.
       target_holding_id = existing ? existing['holding_id'] : holding_id
-      data = RecordBuilder.new.build_item(
-        target_holding_id,
-        barcode,
-        container['description'],
-        container['profile']
-      )
+
+      if existing
+        # Fetch the full Alma item XML and update only the ASpace-managed fields.
+        # The Alma Items PUT endpoint requires the complete item record — sending a
+        # partial payload causes Alma to return a 500 error.
+        alma_item_xml = integrator.get_alma_item(mms, existing['holding_id'], existing['pid'])
+        if alma_item_xml.nil?
+          errors << "#{container['description']}: #{I18n.t('plugins.alma_integrations.errors.fetch_item_failed')}"
+          next
+        end
+        data = builder.merge_item(alma_item_xml, barcode, container['description'], container['profile'])
+        if data.nil?
+          errors << "#{container['description']}: #{I18n.t('plugins.alma_integrations.errors.parse_item_failed')}"
+          next
+        end
+      else
+        data = builder.build_item(target_holding_id, barcode, container['description'], container['profile'])
+      end
 
       response = if existing
         integrator.update_item(mms, existing['holding_id'], existing['pid'], data)

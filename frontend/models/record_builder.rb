@@ -40,6 +40,23 @@ class RecordBuilder
     builder.to_xml
   end
 
+  # Updates only the ASpace-managed fields (barcode, description, internal_note_2)
+  # in the full Alma item XML, preserving all other Alma-managed fields intact.
+  # This is required for PUT requests to the Alma Items API, which replace the
+  # entire item record and therefore require the full item XML to be sent back.
+  def merge_item(alma_item_xml, barcode, description, profile)
+    doc = alma_item_xml.dup
+
+    item_data = doc.at_css('item_data')
+    return nil if item_data.nil?
+
+    set_or_create(doc, item_data, 'barcode', barcode.present? ? barcode : '')
+    set_or_create(doc, item_data, 'description', description)
+    set_or_create(doc, item_data, 'internal_note_2', profile.present? ? profile : '')
+
+    doc.to_xml
+  end
+
   def build_holding(code, id)
     controlfield_string = Time.now.strftime("%y%m%d")
     controlfield_string += "2u^^^^8^^^4001uueng0000000"
@@ -64,6 +81,19 @@ class RecordBuilder
     end
 
     builder.to_xml
+  end
+
+  private
+
+  def set_or_create(doc, parent, tag, value)
+    node = parent.at_css(tag)
+    if node
+      node.content = value
+    else
+      new_node = Nokogiri::XML::Node.new(tag, doc)
+      new_node.content = value
+      parent.add_child(new_node)
+    end
   end
 
 end
