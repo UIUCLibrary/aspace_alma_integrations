@@ -29,3 +29,14 @@
 .search-error {
   color: #721c24;
 }
+
+/* Base zebra striping - explicitly declared to ensure consistent behavior 
+   and to establish specificity baseline for the mismatch highlighting rule */
+.table-striped tbody tr:nth-of-type(2n+1) {
+  background-color: rgba(0, 0, 0, 0.05);
+}
+
+/* Highlighted rows for profile mismatches (overrides zebra striping) */
+.table-striped tbody tr.item-profile-mismatch:nth-of-type(n) {
+  background-color: rgba(255, 235, 59, 0.4);
+}
