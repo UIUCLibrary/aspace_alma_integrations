@@ -35,7 +35,7 @@
   background-color: rgba(0, 0, 0, 0.05);
 }
 
-/* Highlighted rows for profile mismatches (even rows) */
-.table-striped tbody tr.item-profile-mismatch {
+/* Highlighted rows for profile mismatches (overrides zebra striping) */
+.table-striped tbody tr.item-profile-mismatch:nth-of-type(n) {
   background-color: rgba(255, 235, 59, 0.4);
 }
