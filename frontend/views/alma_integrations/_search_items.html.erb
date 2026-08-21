@@ -22,7 +22,7 @@
               </thead>
               <tbody>
                 <% results['items'].each do |item| %>
-                  <tr class="<%= 'item-profile-mismatch' if item['alma_profile'].blank? || item['as_profile'].blank? || item['alma_profile'] != item['as_profile'] %>">
+                  <tr<% if item['alma_profile'].blank? || item['as_profile'].blank? || item['alma_profile'] != item['as_profile'] %> class="item-profile-mismatch"<% end %>>
                     <td class="item-pid"><%= item['pid'] %></td>
                     <td class="item-barcode"><%= item['barcode'] %></td>
                     <td class="item-description"><%= item['description'] %></td>
