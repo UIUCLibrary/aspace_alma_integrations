@@ -10,7 +10,7 @@ module AlmaIntegrations
   # explicit prefix always wins over the heuristic.
   class IdentifierList
 
-    Entry = Struct.new(:raw, :value, :kind, :line) do
+    Entry = Struct.new(:raw, :value, :kind, :line, :explicit) do
       def mms?
         kind == :mms
       end
@@ -20,7 +20,7 @@ module AlmaIntegrations
       end
 
       def to_h
-        { 'raw' => raw, 'value' => value, 'kind' => kind.to_s, 'line' => line }
+        { 'raw' => raw, 'value' => value, 'kind' => kind.to_s, 'line' => line, 'explicit' => !!explicit }
       end
     end
 
@@ -133,7 +133,7 @@ module AlmaIntegrations
           end
         end
 
-        kind, value = classify(cell)
+        kind, value, explicit = classify(cell)
 
         if value.empty?
           @problems << Problem.new(line.strip, line_number, 'no value after the identifier prefix')
@@ -142,12 +142,12 @@ module AlmaIntegrations
 
         key = [kind, value]
         if seen.key?(key)
-          @duplicates << Entry.new(cell, value, kind, line_number)
+          @duplicates << Entry.new(cell, value, kind, line_number, explicit)
           next
         end
 
         seen[key] = true
-        @entries << Entry.new(cell, value, kind, line_number)
+        @entries << Entry.new(cell, value, kind, line_number, explicit)
       end
     end
 
@@ -184,13 +184,16 @@ module AlmaIntegrations
       HEADER_VALUES.include?(value.downcase.gsub(/[\s-]+/, '_'))
     end
 
+    # Returns [kind, value, explicit]. `explicit` records that the user named
+    # the kind with a prefix, so a blanket choice on the job form will not
+    # override it.
     def classify(value)
       if (match = /\A([A-Za-z_]+)\s*:\s*(.*)\z/.match(value))
         kind = PREFIXES[match[1].downcase]
-        return [kind, match[2].strip] unless kind.nil?
+        return [kind, match[2].strip, true] unless kind.nil?
       end
 
-      MMS_PATTERN.match?(value) ? [:mms, value] : [:collection, value]
+      MMS_PATTERN.match?(value) ? [:mms, value, false] : [:collection, value, false]
     end
   end
 end

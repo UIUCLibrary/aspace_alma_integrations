@@ -102,12 +102,23 @@ module AlmaIntegrations
         end
       end
 
-      new(leader, fields)
+      new(leader, fields, record)
     end
 
-    def initialize(leader, fields)
+    def initialize(leader, fields, source_node = nil)
       @leader = leader
       @fields = fields || []
+      @source_node = source_node
+    end
+
+    # The record exactly as it arrived. The audit stores Alma's MARC verbatim as
+    # a failsafe, so this deliberately returns the original serialisation rather
+    # than a round trip through the parsed model -- a round trip could quietly
+    # normalise away the very thing someone is trying to recover.
+    def to_xml
+      return nil if @source_node.nil?
+
+      @source_node.to_xml
     end
 
     def empty?
