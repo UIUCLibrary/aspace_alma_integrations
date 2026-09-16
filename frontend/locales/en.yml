@@ -1,8 +1,140 @@
 en:
+  # The user-defined field that holds the Alma MMS ID. ArchivesSpace labels
+  # these "String 1", "String 2" and so on out of the box, which tells a
+  # cataloguer nothing about what belongs in them. If you point
+  # AppConfig[:alma_mms_id_field] at a different field, move this label to match.
+  user_defined:
+    string_2: Alma MMS ID
+    string_2_tooltip: The MMS ID of this collection's catalogue record in Alma. Used to match the resource to its Alma bib for pushes and audits.
+
+  job:
+    types:
+      alma_audit_job: Alma Audit Report
+      alma_bulk_update_job: Alma Bulk Update
+
+  alma_audit_job:
+    _singular: Alma Audit Report
+    _plural: Alma Audit Reports
+    description: Compare the MARC records in Alma with the MARC ArchivesSpace would send, and report what an update would overwrite.
+    intro: "This job compares each record in Alma with the record ArchivesSpace would send, and reports what would be lost or changed. It reads from Alma only: nothing is written to the catalogue."
+    identifiers: Identifiers
+    identifiers_placeholder: "One per line. MMS IDs or collection identifiers, e.g. 991234567890205899 or MS-1923-04. Prefix a line with mms: or ead: to be explicit."
+    upload: Upload a list
+    upload_help: A plain text file with one identifier per line, or a CSV/TSV. Combined with anything pasted above.
+    identifier_type: Treat identifiers as
+    identifier_type_auto: Detect automatically
+    identifier_type_mms: Alma MMS IDs
+    identifier_type_collection: ArchivesSpace collection identifiers
+    collection_id_field: Match collection identifiers against
+    collection_id_field_auto: EAD ID, then resource identifier
+    collection_id_field_ead_id: EAD ID only
+    collection_id_field_identifier: Resource identifier only
+    csv_column: CSV column (0 is the first)
+    store_alma_marc: Keep a copy of each Alma record
+    store_outgoing_marc: Keep a copy of each outgoing ArchivesSpace record
+    include_unpublished: Include unpublished records
+    not_finished: This audit has not produced a report yet. Check the job log for progress.
+    summary_heading: Audit summary
+    stat_audited: "%{audited} of %{total} records audited"
+    stat_loss: "%{count} would lose data"
+    stat_change: "%{count} would have changed data"
+    stat_identical: "%{count} are already identical"
+    stat_errored: "%{count} could not be audited"
+    stat_nz: "%{count} are linked to the Network Zone"
+    view_report: View the full report
+
+  alma_bulk_update_job:
+    _singular: Alma Bulk Update
+    _plural: Alma Bulk Updates
+    description: Push ArchivesSpace MARC records to Alma in bulk, overwriting the catalogue records.
+    warning: This job overwrites catalogue records in Alma. Run an audit first and read the report, so you know what will be replaced. Leave the dry run ticked for a first pass.
+    audit_job_id: Audit report to apply (job number)
+    dry_run: Dry run (check everything, send nothing to Alma)
+    skip_identical: Skip records already identical to Alma
+    stale_version_check: Refuse records Alma has changed since the audit
+    check_aspace_changes: Refuse records ArchivesSpace has changed since the audit
+    include_nz_linked: Include Network Zone linked records
+    skip_audit: Push without an audit report
+    without_audit_heading: Pushing without an audit
+    without_audit_help: Only use this if you already know what these records contain. Without an audit, nothing has checked what the update would overwrite.
+    identifiers: Identifiers
+    upload: Upload a list
+    identifier_type: Treat identifiers as
+    collection_id_field: Match collection identifiers against
+    not_finished: This job has not finished yet. Check the job log for progress.
+    was_dry_run: This was a dry run. Nothing was sent to Alma.
+    stat_updated: "%{count} updated"
+    stat_would_update: "%{count} would have been updated"
+    stat_skipped: "%{count} skipped"
+    stat_failed: "%{count} failed"
+    view_audit: View the audit report this was based on
+
+  alma_audit_reports:
+    _singular: Alma Audit Report
+    _plural: Alma Audit Reports
+    intro: Each audit compares the MARC in Alma with the MARC ArchivesSpace would send, so you can see what a bulk update would overwrite before running one.
+    title: "Alma Audit Report (job %{id})"
+    run_new: Run a new audit
+    none: No audits have been run in this repository yet.
+    view: View report
+    view_job: View job
+    index_error: "Could not load the list of audits: %{message}"
+    not_an_audit: That job is not an Alma audit.
+    unknown_file: That file is not part of this audit report.
+    no_summary: This audit has not produced a summary yet.
+    stopped_early: "This audit stopped before it finished:"
+    col_id: Job
+    col_status: Status
+    col_owner: Run by
+    col_submitted: Submitted
+    download_json: Download the JSON report
+    run_bulk_update: Run the bulk update
+    what_happened: What an update would do
+    commentary: "Of %{total} records submitted, %{audited} were compared with Alma. %{loss} would lose data that exists only in the catalogue, %{change} would have data replaced with something different, and %{identical} already match what ArchivesSpace would send."
+    stat_submitted: "%{count} records submitted"
+    stat_audited: "%{count} records compared with Alma"
+    stat_errored: "%{count} records could not be audited"
+    stat_nz: "%{count} records are linked to the Network Zone. A bib update replaces only local fields on those records, so the comparison below overstates what an update would change. They are held back from bulk updates unless you deliberately include them."
+    loss_heading: Fields that would lose data
+    loss_intro: These fields exist in Alma and would be wholly or partly removed by an update. Adding a tag to the preserve list carries it over instead.
+    no_loss: No field would lose data.
+    change_heading: Fields that would end up with different data
+    change_intro: These fields would survive an update but hold something different afterwards.
+    no_change: No field would end up with different data.
+    addition_heading: Fields that would be added
+    addition_intro: ArchivesSpace would contribute these fields to records that do not currently have them.
+    col_field: MARC field
+    col_records_losing: Records that would lose data
+    col_records_changing: Records that would change
+    col_records_adding: Records that would gain it
+    col_full_loss: Field removed entirely
+    col_partial_loss: Some subfields lost
+    marc_tag: "MARC %{tag}"
+    ratio: "%{count} of %{total}"
+    preserved: Already preserved
+    recommend_heading: Suggested additions to the preserve list
+    recommend_intro: These fields lose data often enough across this set that carrying them over from Alma is probably what you want.
+    excluded_heading: Not counted above
+    excluded_intro: These fields differ on essentially every record for mechanical reasons, so counting them would bury the fields you actually care about. They are still compared, and the per-record detail is in the downloaded JSON.
+    errors_heading: Records that could not be audited
+    errors_detail: The identifier and reason for each is in the errors section of the JSON report.
+    files_heading: Files
+    provenance: "This audit made %{requests} Alma API call(s) and took %{duration} seconds."
+    error_kind:
+      resource_not_found: No matching ArchivesSpace resource
+      no_mms_id: Resource has no Alma MMS ID
+      ambiguous: Identifier matches more than one resource
+      shared_mms_id: Several resources share one MMS ID
+      wrong_repository: Resource belongs to another repository
+      alma_not_found: No such record in Alma
+      alma_error: Alma returned an error
+      comparison_failed: The comparison failed
+
   plugins:
     alma_integrations:
       label: Alma Integrations
       title: Alma Integrations
+      bulk_hint: audit many records at once, and run bulk updates from the result.
       labels:
         holdings_id: Holdings ID
         location_code: Location Code

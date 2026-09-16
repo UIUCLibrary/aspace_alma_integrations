@@ -1,0 +1,221 @@
+<h2><%= t('alma_audit_reports.title', :id => @job.id) %></h2>
+
+<% if @summary.empty? %>
+  <div class="alert alert-info">
+    <%= t('alma_audit_reports.no_summary') %>
+    <%= link_to t('alma_audit_reports.view_job'), url_for(:controller => :jobs, :action => :show, :id => @job.id) %>
+  </div>
+<% else %>
+
+  <% if @summary['stopped_early'] %>
+    <div class="alert alert-warning">
+      <strong><%= t('alma_audit_reports.stopped_early') %></strong>
+      <%= @summary['stopped_early'] %>
+    </div>
+  <% end %>
+
+  <% @warnings.each do |warning| %>
+    <div class="alert alert-warning"><%= warning %></div>
+  <% end %>
+
+  <div class="alma-report-actions">
+    <% if @report_file && @report_file['id'] %>
+      <%= link_to t('alma_audit_reports.download_json'),
+                  url_for(:controller => :alma_audit_reports, :action => :download,
+                          :id => @job.id, :file_id => @report_file['id']),
+                  :class => 'btn btn-default' %>
+    <% end %>
+
+    <%= link_to t('alma_audit_reports.run_bulk_update'),
+                url_for(:controller => :jobs, :action => :new,
+                        :job_type => 'alma_bulk_update_job', :audit_job_id => @job.id),
+                :class => 'btn btn-danger' %>
+
+    <%= link_to t('alma_audit_reports.view_job'),
+                url_for(:controller => :jobs, :action => :show, :id => @job.id),
+                :class => 'btn btn-link' %>
+  </div>
+
+  <h3><%= t('alma_audit_reports.what_happened') %></h3>
+
+  <p class="alma-report-commentary">
+    <%= t('alma_audit_reports.commentary',
+          :audited => @records['audited'].to_i,
+          :total => @records['total'].to_i,
+          :loss => @records['with_loss'].to_i,
+          :change => @records['with_change'].to_i,
+          :identical => @records['identical'].to_i) %>
+  </p>
+
+  <ul class="alma-report-stats">
+    <li><%= t('alma_audit_reports.stat_submitted', :count => @records['total'].to_i) %></li>
+    <li><%= t('alma_audit_reports.stat_audited', :count => @records['audited'].to_i) %></li>
+    <% if @records['errored'].to_i > 0 %>
+      <li class="alma-report-error"><%= t('alma_audit_reports.stat_errored', :count => @records['errored'].to_i) %></li>
+    <% end %>
+    <% if @records['network_zone_linked'].to_i > 0 %>
+      <li class="alma-report-warning"><%= t('alma_audit_reports.stat_nz', :count => @records['network_zone_linked'].to_i) %></li>
+    <% end %>
+  </ul>
+
+  <%# ---- Losses ---- %>
+  <h3><%= t('alma_audit_reports.loss_heading') %></h3>
+
+  <% if @loss_fields.empty? %>
+    <p><%= t('alma_audit_reports.no_loss') %></p>
+  <% else %>
+    <p><%= t('alma_audit_reports.loss_intro') %></p>
+    <table class="table table-condensed table-striped alma-report-fields">
+      <thead>
+        <tr>
+          <th><%= t('alma_audit_reports.col_field') %></th>
+          <th><%= t('alma_audit_reports.col_records_losing') %></th>
+          <th><%= t('alma_audit_reports.col_full_loss') %></th>
+          <th><%= t('alma_audit_reports.col_partial_loss') %></th>
+        </tr>
+      </thead>
+      <tbody>
+        <% @loss_fields.each do |field| %>
+          <tr>
+            <td>
+              <strong><%= t('alma_audit_reports.marc_tag', :tag => field['tag']) %></strong>
+              <%= field['label'] %>
+              <% if field['preserved'] %>
+                <span class="label label-success"><%= t('alma_audit_reports.preserved') %></span>
+              <% end %>
+            </td>
+            <td>
+              <%= t('alma_audit_reports.ratio',
+                    :count => field['records_with_loss'].to_i,
+                    :total => field['records_in_alma'].to_i) %>
+            </td>
+            <td><%= field['records_with_full_loss'].to_i %></td>
+            <td><%= field['records_with_partial_loss'].to_i %></td>
+          </tr>
+        <% end %>
+      </tbody>
+    </table>
+  <% end %>
+
+  <%# ---- Changes ---- %>
+  <h3><%= t('alma_audit_reports.change_heading') %></h3>
+
+  <% if @change_fields.empty? %>
+    <p><%= t('alma_audit_reports.no_change') %></p>
+  <% else %>
+    <p><%= t('alma_audit_reports.change_intro') %></p>
+    <table class="table table-condensed table-striped alma-report-fields">
+      <thead>
+        <tr>
+          <th><%= t('alma_audit_reports.col_field') %></th>
+          <th><%= t('alma_audit_reports.col_records_changing') %></th>
+        </tr>
+      </thead>
+      <tbody>
+        <% @change_fields.each do |field| %>
+          <tr>
+            <td>
+              <strong><%= t('alma_audit_reports.marc_tag', :tag => field['tag']) %></strong>
+              <%= field['label'] %>
+            </td>
+            <td>
+              <%= t('alma_audit_reports.ratio',
+                    :count => field['records_with_change'].to_i,
+                    :total => field['records_in_alma'].to_i) %>
+            </td>
+          </tr>
+        <% end %>
+      </tbody>
+    </table>
+  <% end %>
+
+  <%# ---- Additions ---- %>
+  <% unless @addition_fields.empty? %>
+    <h3><%= t('alma_audit_reports.addition_heading') %></h3>
+    <p><%= t('alma_audit_reports.addition_intro') %></p>
+    <table class="table table-condensed table-striped alma-report-fields">
+      <thead>
+        <tr>
+          <th><%= t('alma_audit_reports.col_field') %></th>
+          <th><%= t('alma_audit_reports.col_records_adding') %></th>
+        </tr>
+      </thead>
+      <tbody>
+        <% @addition_fields.each do |field| %>
+          <tr>
+            <td>
+              <strong><%= t('alma_audit_reports.marc_tag', :tag => field['tag']) %></strong>
+              <%= field['label'] %>
+            </td>
+            <td><%= field['records_with_addition'].to_i %></td>
+          </tr>
+        <% end %>
+      </tbody>
+    </table>
+  <% end %>
+
+  <%# ---- Recommendations ---- %>
+  <% unless @recommended.empty? %>
+    <h3><%= t('alma_audit_reports.recommend_heading') %></h3>
+    <p><%= t('alma_audit_reports.recommend_intro') %></p>
+    <ul class="alma-report-recommendations">
+      <% @recommended.each do |field| %>
+        <li>
+          <strong><%= t('alma_audit_reports.marc_tag', :tag => field['tag']) %></strong>
+          <%= field['label'] %> &mdash; <%= field['reason'] %>
+        </li>
+      <% end %>
+    </ul>
+    <pre class="alma-report-config">AppConfig[:alma_marc_fields_to_preserve] = <%=
+      ((@summary['parameters'] || {})['preserved_tags'] || []).concat(@recommended.map { |field| field['tag'] }).uniq.inspect
+    %></pre>
+  <% end %>
+
+  <%# ---- Disclosure about what is not counted ---- %>
+  <% unless @excluded.empty? %>
+    <h3><%= t('alma_audit_reports.excluded_heading') %></h3>
+    <p><%= t('alma_audit_reports.excluded_intro') %></p>
+    <ul class="alma-report-excluded">
+      <% @excluded.each do |field| %>
+        <li>
+          <strong><%= t('alma_audit_reports.marc_tag', :tag => field['tag']) %></strong>
+          <%= field['label'] %> &mdash; <%= field['reason'] %>
+        </li>
+      <% end %>
+    </ul>
+  <% end %>
+
+  <%# ---- Errors ---- %>
+  <% errors = @summary['errors_by_kind'] || {} %>
+  <% unless errors.empty? %>
+    <h3><%= t('alma_audit_reports.errors_heading') %></h3>
+    <ul class="alma-report-errors">
+      <% errors.each do |kind, count| %>
+        <li><%= t("alma_audit_reports.error_kind.#{kind}", :default => kind) %>: <%= count %></li>
+      <% end %>
+    </ul>
+    <p><%= t('alma_audit_reports.errors_detail') %></p>
+  <% end %>
+
+  <%# ---- Files ---- %>
+  <% unless @files.empty? %>
+    <h3><%= t('alma_audit_reports.files_heading') %></h3>
+    <ul class="alma-report-files">
+      <% @files.each do |file| %>
+        <% next unless file['id'] %>
+        <li>
+          <%= link_to file['filename'],
+                      url_for(:controller => :alma_audit_reports, :action => :download,
+                              :id => @job.id, :file_id => file['id']) %>
+          <% if file['description'] %>&mdash; <%= file['description'] %><% end %>
+        </li>
+      <% end %>
+    </ul>
+  <% end %>
+
+  <p class="alma-report-provenance">
+    <%= t('alma_audit_reports.provenance',
+          :requests => @summary['alma_requests'].to_i,
+          :duration => @summary['duration_seconds']) %>
+  </p>
+<% end %>

@@ -6,6 +6,12 @@ ArchivesSpace::Application.routes.draw do
       match('/plugins/alma_integrations/add_bibs' => 'alma_integrations#add_bibs', :via => [:post])
       match('/plugins/alma_integrations/add_holdings' => 'alma_integrations#add_holdings', :via => [:post])
       match('/plugins/alma_integrations/add_items' => 'alma_integrations#add_items', :via => [:post])
+
+      # Audit reports. Audits run as background jobs, so this is where you come
+      # back to read one rather than waiting on a page while it runs.
+      match('/plugins/alma_audit_reports' => 'alma_audit_reports#index', :via => [:get])
+      match('/plugins/alma_audit_reports/:id' => 'alma_audit_reports#show', :via => [:get])
+      match('/plugins/alma_audit_reports/:id/download/:file_id' => 'alma_audit_reports#download', :via => [:get])
     end
   end
 end

@@ -5,6 +5,12 @@
     <div class="col-md-12">
       <%= render partial: "shared/flash_messages" %>
       <h2><%= I18n.t("plugins.alma_integrations.title") %></h2>
+      <p class="alma-bulk-links">
+        <%= link_to I18n.t("alma_audit_reports._plural"),
+                    url_for(:controller => :alma_audit_reports, :action => :index) %>
+        &mdash;
+        <%= I18n.t("plugins.alma_integrations.bulk_hint") %>
+      </p>
     </div>
   </div>
 

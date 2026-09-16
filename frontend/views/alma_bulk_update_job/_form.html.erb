@@ -1,0 +1,47 @@
+<%# Form for the Alma bulk update job.
+
+  This is the job that actually overwrites catalogue records, so the form leads
+  with the audit requirement and keeps the dry run on by default.
+%>
+
+<div class="alert alert-warning">
+  <p><%= t('alma_bulk_update_job.warning') %></p>
+</div>
+
+<%= form.label_and_textfield "audit_job_id" %>
+
+<%= form.label_and_boolean "dry_run", {}, true %>
+
+<%= form.label_and_boolean "skip_identical", {}, true %>
+
+<%= form.label_and_boolean "stale_version_check", {}, true %>
+
+<%= form.label_and_boolean "check_aspace_changes", {}, true %>
+
+<%= form.label_and_boolean "include_nz_linked", {}, false %>
+
+<h4><%= t('alma_bulk_update_job.without_audit_heading') %></h4>
+<p class="help-block"><%= t('alma_bulk_update_job.without_audit_help') %></p>
+
+<%= form.label_and_boolean "skip_audit", {}, false %>
+
+<%= form.label_and_textarea "identifiers", :field_opts => {:rows => 6} %>
+
+<div class="form-group">
+  <label class="col-sm-2 control-label" for="alma_update_files">
+    <%= t('alma_bulk_update_job.upload') %>
+  </label>
+  <div class="col-sm-8">
+    <input id="alma_update_files" type="file" name="files[]" multiple="multiple" accept=".txt,.csv,.tsv" />
+  </div>
+</div>
+
+<%= form.label_and_select "identifier_type",
+                          [[t('alma_audit_job.identifier_type_auto'), 'auto'],
+                           [t('alma_audit_job.identifier_type_mms'), 'mms'],
+                           [t('alma_audit_job.identifier_type_collection'), 'collection']] %>
+
+<%= form.label_and_select "collection_id_field",
+                          [[t('alma_audit_job.collection_id_field_auto'), 'auto'],
+                           [t('alma_audit_job.collection_id_field_ead_id'), 'ead_id'],
+                           [t('alma_audit_job.collection_id_field_identifier'), 'identifier']] %>

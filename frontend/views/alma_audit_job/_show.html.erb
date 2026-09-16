@@ -1,0 +1,36 @@
+<%# Shown on the job page once an audit has been submitted.
+
+  The full report is a downloadable file, but the headline numbers live on the
+  job itself so this renders immediately without parsing a document that may be
+  tens of megabytes.
+%>
+<% summary = (job.job['summary'] rescue nil) || {} %>
+<% records = summary['records'] || {} %>
+
+<div class="alma-audit-show">
+  <% if summary.empty? %>
+    <p><%= t('alma_audit_job.not_finished') %></p>
+  <% else %>
+    <div class="alma-audit-headline">
+      <h4><%= t('alma_audit_job.summary_heading') %></h4>
+      <ul>
+        <li><%= t('alma_audit_job.stat_audited', :audited => records['audited'].to_i, :total => records['total'].to_i) %></li>
+        <li><%= t('alma_audit_job.stat_loss', :count => records['with_loss'].to_i) %></li>
+        <li><%= t('alma_audit_job.stat_change', :count => records['with_change'].to_i) %></li>
+        <li><%= t('alma_audit_job.stat_identical', :count => records['identical'].to_i) %></li>
+        <% if records['errored'].to_i > 0 %>
+          <li class="alma-audit-error"><%= t('alma_audit_job.stat_errored', :count => records['errored'].to_i) %></li>
+        <% end %>
+        <% if records['network_zone_linked'].to_i > 0 %>
+          <li class="alma-audit-warning"><%= t('alma_audit_job.stat_nz', :count => records['network_zone_linked'].to_i) %></li>
+        <% end %>
+      </ul>
+    </div>
+
+    <p>
+      <%= link_to t('alma_audit_job.view_report'),
+                  url_for(:controller => :alma_audit_reports, :action => :show, :id => job.id),
+                  :class => "btn btn-primary" %>
+    </p>
+  <% end %>
+</div>

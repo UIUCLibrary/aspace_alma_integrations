@@ -1,0 +1,54 @@
+<h2><%= t('alma_audit_reports._plural') %></h2>
+
+<p class="alma-reports-intro"><%= t('alma_audit_reports.intro') %></p>
+
+<p>
+  <%= link_to t('alma_audit_reports.run_new'),
+              url_for(:controller => :jobs, :action => :new, :job_type => 'alma_audit_job'),
+              :class => 'btn btn-primary' %>
+</p>
+
+<% results = @search_data.nil? ? [] : @search_data.results %>
+
+<% if results.empty? %>
+  <div class="alert alert-info">
+    <%= t('alma_audit_reports.none') %>
+  </div>
+<% else %>
+  <table class="table table-condensed table-striped">
+    <thead>
+      <tr>
+        <th><%= t('alma_audit_reports.col_id') %></th>
+        <th><%= t('alma_audit_reports.col_status') %></th>
+        <th><%= t('alma_audit_reports.col_owner') %></th>
+        <th><%= t('alma_audit_reports.col_submitted') %></th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      <% results.each do |result| %>
+        <% job_id = result['uri'].to_s.split('/').last %>
+        <tr>
+          <td><%= job_id %></td>
+          <td><%= t("job.status_#{result['job_status']}", :default => result['job_status']) %></td>
+          <td><%= result['owner'] %></td>
+          <td><%= result['create_time'] %></td>
+          <td class="table-record-actions">
+            <% if result['job_status'] == 'completed' %>
+              <%= link_to t('alma_audit_reports.view'),
+                          url_for(:controller => :alma_audit_reports, :action => :show, :id => job_id),
+                          :class => 'btn btn-xs btn-default' %>
+            <% end %>
+            <%= link_to t('alma_audit_reports.view_job'),
+                        url_for(:controller => :jobs, :action => :show, :id => job_id),
+                        :class => 'btn btn-xs btn-default' %>
+          </td>
+        </tr>
+      <% end %>
+    </tbody>
+  </table>
+
+  <% if @search_data.respond_to?(:paginate) %>
+    <%= render_aspace_partial :partial => "search/pagination", :locals => {:search_data => @search_data} %>
+  <% end %>
+<% end %>

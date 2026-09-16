@@ -1,0 +1,39 @@
+<%# Form for the Alma audit job.
+
+  Every input must be named job[...] for ArchivesSpace to pass it through to
+  the job runner, which is what the label_and_* helpers do.
+%>
+
+<div class="alma-job-intro">
+  <p><%= t('alma_audit_job.intro') %></p>
+</div>
+
+<%= form.label_and_textarea "identifiers", :field_opts => {:rows => 8, :placeholder => t('alma_audit_job.identifiers_placeholder')} %>
+
+<div class="form-group">
+  <label class="col-sm-2 control-label" for="alma_audit_files">
+    <%= t('alma_audit_job.upload') %>
+  </label>
+  <div class="col-sm-8">
+    <input id="alma_audit_files" type="file" name="files[]" multiple="multiple" accept=".txt,.csv,.tsv" />
+    <p class="help-block"><%= t('alma_audit_job.upload_help') %></p>
+  </div>
+</div>
+
+<%= form.label_and_select "identifier_type",
+                          [[t('alma_audit_job.identifier_type_auto'), 'auto'],
+                           [t('alma_audit_job.identifier_type_mms'), 'mms'],
+                           [t('alma_audit_job.identifier_type_collection'), 'collection']] %>
+
+<%= form.label_and_select "collection_id_field",
+                          [[t('alma_audit_job.collection_id_field_auto'), 'auto'],
+                           [t('alma_audit_job.collection_id_field_ead_id'), 'ead_id'],
+                           [t('alma_audit_job.collection_id_field_identifier'), 'identifier']] %>
+
+<%= form.label_and_textfield "csv_column", :field_opts => {:value => 0} %>
+
+<%= form.label_and_boolean "store_alma_marc", {}, true %>
+
+<%= form.label_and_boolean "store_outgoing_marc", {}, false %>
+
+<%= form.label_and_boolean "include_unpublished", {}, false %>
