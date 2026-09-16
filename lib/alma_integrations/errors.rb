@@ -73,6 +73,19 @@ module AlmaIntegrations
       Array(errors).any? { |error| error.code.to_s.include?(code) }
     end
 
+    # A single human-readable string for a response body, whatever shape it
+    # arrived in. Falls back to the HTTP status so the caller always has
+    # something to show rather than an empty message.
+    def describe(body, status = nil)
+      errors = parse(body)
+      description = errors.map(&:to_s).reject { |text| text.strip.empty? }.join('; ')
+
+      return description unless description.strip.empty?
+      return "Alma returned HTTP #{status}" unless status.nil?
+
+      'Alma returned an unreadable error'
+    end
+
     def daily_threshold?(errors)
       threshold_error?(errors, DAILY_THRESHOLD)
     end

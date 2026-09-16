@@ -32,11 +32,19 @@ class AlmaIntegrator
       uri = URI("#{@baseurl}/#{mms}")
       uri.query = URI.encode_www_form({:apikey => @key})
       response = AlmaRequester.new.get(uri, :use_ssl => true)
-      xml = Nokogiri::XML(response.body,&:noblanks)
+
       if response.is_a?(Net::HTTPSuccess)
+        xml = Nokogiri::XML(response.body,&:noblanks)
         alma['content'] = xml.at_css('record')
+        # A 200 with no record in it is not a success from our point of view.
+        alma['error'] = I18n.t("plugins.alma_integrations.errors.no_alma_record") if alma['content'].nil?
       else
-        alma['error'] = "[#{xml.at_css('errorCode').text}] #{xml.at_css('errorMessage').text}"
+        # Alma reports errors as XML, as JSON, and occasionally as an HTML error
+        # page from something in front of it. The previous implementation
+        # assumed XML with errorCode and errorMessage elements and raised
+        # NoMethodError on anything else, turning a transient gateway error into
+        # a crash.
+        alma['error'] = AlmaIntegrations::ErrorParser.describe(response.body, response.code)
       end
     end
 
@@ -58,36 +66,24 @@ class AlmaIntegrator
   # the Alma record into the ASpace record, replacing any instances of those fields that
   # ASpace may have generated. This allows institutions to protect locally significant
   # Alma-managed fields from being overwritten on push.
+  #
+  # The work itself is done by AlmaIntegrations::MarcPreserver, which the bulk
+  # audit and bulk update jobs also use. Sharing one implementation is what lets
+  # the audit report claim to describe what a push would really do -- two copies
+  # of this logic would eventually disagree, and the report would start lying.
   def preserve_alma_marc_fields(aspace, alma)
-    # Preserve 008/00-05 (Date Entered on File) from Alma
-    aspace_008 = aspace['content'].at_css('controlfield[@tag="008"]')
-    alma_008 = alma['content'].at_css('controlfield[@tag="008"]')
+    @preserve_result = marc_preserver.apply(aspace['content'], alma['content'])
+    @preserve_result.to_xml(:indent => 2)
+  end
 
-    if aspace_008.text[0,6] != alma_008.text[0,6]
-      controlfield_string = alma_008.text[0,6]
-      controlfield_string += aspace_008.text[6..-1]
-      aspace['content'].at_css('controlfield[@tag="008"]').content = controlfield_string
-    end
+  # Warnings raised while preserving fields on the most recent call, e.g. a
+  # record with no 008 to carry the creation date over from.
+  def preserve_warnings
+    @preserve_result.nil? ? [] : @preserve_result.warnings
+  end
 
-    # Preserve any additional fields configured by the institution
-    preserved_fields = AppConfig.has_key?(:alma_marc_fields_to_preserve) ? AppConfig[:alma_marc_fields_to_preserve] : []
-    preserved_fields.each do |tag|
-      # Remove any instances of this field from the ASpace record
-      aspace['content'].css("datafield[@tag='#{tag}'], controlfield[@tag='#{tag}']").each(&:remove)
-
-      # Copy all instances of this field from the Alma record, inserting each
-      # in the correct MARC numerical tag order rather than appending at the end
-      alma['content'].css("datafield[@tag='#{tag}'], controlfield[@tag='#{tag}']").each do |field|
-        next_field = aspace['content'].css("controlfield, datafield").find { |f| f['tag'].to_i > tag.to_i }
-        if next_field
-          next_field.add_previous_sibling(field.dup)
-        else
-          aspace['content'].add_child(field.dup)
-        end
-      end
-    end
-
-    return aspace['content'].to_xml(indent: 2)
+  def marc_preserver
+    @marc_preserver ||= AlmaIntegrations::MarcPreserver.new(AlmaIntegrations::Settings.from_app_config)
   end
 
   def search_bibs(ref, mms)
@@ -115,6 +111,7 @@ class AlmaIntegrator
         results['alma_marc'] = alma['content'].to_xml(indent: 2)
         results['marc'] = preserve_alma_marc_fields(aspace, alma)
         results['aspace_marc'] = results['marc']
+        results['preserve_warnings'] = preserve_warnings
       end
     end
 
@@ -122,9 +119,12 @@ class AlmaIntegrator
   end
 
   def search_holdings(mms)
-    results = { 'holdings' => [] }
+    results = { 'holdings' => [], 'count' => 0 }
 
-    return if mms.nil?
+    # Returning the empty results hash rather than nil: callers index into this
+    # (e.g. results['holdings']), so handing back nil turned "this record has no
+    # MMS ID" into a NoMethodError further up the page.
+    return results if mms.nil?
 
     uri = URI("#{@baseurl}/#{mms}/holdings")
     uri.query = URI.encode_www_form({:apikey => @key, :format => 'json'})
@@ -182,7 +182,10 @@ class AlmaIntegrator
 		if response.is_a?(Net::HTTPSuccess)
 			obj = JSON.parse(response.body)
 			results['count'] = obj['total_record_count']
-      results['last_page'] = obj['total_record_count'].round(-1) / 10
+      # round(-1)/10 rounds to the nearest ten before dividing, so 104 items
+      # produced 10 pages (losing the last 4) and 105 produced 11 (inventing an
+      # empty one). Ceiling division is what paging actually wants.
+      results['last_page'] = (results['count'].to_i / 10.0).ceil
 			if results['count'] > 0
 				items = obj['item']
 				items.each do |item|

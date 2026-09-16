@@ -153,6 +153,7 @@ en:
       errors:
         no_marc: "No MARC record found in ArchivesSpace, search terminated"
         no_mms: "No MMS ID provided for this Resource."
+        no_alma_record: "Alma returned no MARC record for this MMS ID."
         no_holdings_for_items: "No holdings found for this BIB. Add a holding before adding items."
         add_items_missing_params: "Error: MMS ID, holding ID, and at least one container must be provided."
         fetch_item_failed: "Could not retrieve existing item from Alma. The item was not updated."
