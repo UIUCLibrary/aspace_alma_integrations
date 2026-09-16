@@ -101,7 +101,10 @@ module AlmaIntegrations
     def parse(text)
       text = text.dup.force_encoding(Encoding::UTF_8)
       text = text.encode(Encoding::UTF_8, :invalid => :replace, :undef => :replace, :replace => '') unless text.valid_encoding?
-      text = text.sub(/\A\xEF\xBB\xBF/n, '')
+      # Spreadsheet exports routinely start with a byte order mark. Once the
+      # string is UTF-8 the BOM is U+FEFF, so it has to be matched as a
+      # character: an ASCII-8BIT regexp for the raw bytes raises
+      # Encoding::CompatibilityError against any string containing non-ASCII.
       text = text.sub(/\A\uFEFF/, '')
 
       separator = detect_separator(text)

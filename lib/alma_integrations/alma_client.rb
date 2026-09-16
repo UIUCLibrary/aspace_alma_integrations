@@ -121,12 +121,13 @@ module AlmaIntegrations
           next
         end
 
-        records = index_bib_response(response.body)
+        records, per_record_errors = index_bib_response(response.body)
 
         chunk.each do |mms_id|
-          entry = records[mms_id.to_s]
+          key = mms_id.to_s
+          entry = records[key]
           if entry.nil?
-            yield(mms_id, nil, 'Record not found in Alma')
+            yield(mms_id, nil, per_record_errors[key] || 'Record not found in Alma')
           else
             yield(mms_id, entry, nil)
           end
@@ -140,17 +141,23 @@ module AlmaIntegrations
 
     private
 
+    # Returns [records_by_mms_id, error_messages_by_mms_id]. A multi-ID bib GET
+    # can return HTTP 200 with a per-bib errorList for the IDs it could not
+    # serve; reporting those as a generic "not found" would hide the reason
+    # (a suppressed record and a malformed MMS ID are not the same problem to
+    # the person reading the audit).
     def index_bib_response(body)
       doc = Nokogiri::XML(body, &:noblanks)
-      return {} if doc.nil? || doc.root.nil?
+      return [{}, {}] if doc.nil? || doc.root.nil?
 
       doc.remove_namespaces!
 
       index = {}
+      errors = {}
+
       doc.xpath('//bib').each do |bib|
         mms_node = bib.at_xpath('./mms_id')
         record = bib.at_xpath('./record')
-        next if record.nil?
 
         # Fall back to the 001 when the bib wrapper has no mms_id element.
         key = if mms_node
@@ -160,10 +167,29 @@ module AlmaIntegrations
               end
         next if key.empty?
 
+        if record.nil?
+          message = describe_bib_errors(bib)
+          errors[key] = message unless message.nil?
+          next
+        end
+
         index[key] = record
       end
 
-      index
+      [index, errors]
+    end
+
+    def describe_bib_errors(bib)
+      messages = bib.xpath('./errorList/error').map do |error|
+        code = error.at_xpath('./errorCode')&.text.to_s.strip
+        text = error.at_xpath('./errorMessage')&.text.to_s.strip
+        parts = []
+        parts << "[#{code}]" unless code.empty?
+        parts << text unless text.empty?
+        parts.join(' ')
+      end.reject(&:empty?)
+
+      messages.empty? ? nil : messages.join('; ')
     end
 
     def execute(method, subpath, body, query)
@@ -189,12 +215,24 @@ module AlmaIntegrations
         track_remaining(response)
 
         if throttled?(response)
-          raise RequestFailedError, "Alma per-second threshold still exceeded after #{attempt} attempts" if attempt > max_retries
-
-          delay = backoff_delay(attempt)
-          log("Alma reported the per-second threshold; backing off for #{format('%.2f', delay)}s (attempt #{attempt})")
-          @limiter.penalize(delay)
-          next
+          # A per-second rejection is applied at Alma's gateway, so in practice
+          # the request never reached the application and replaying it is safe.
+          # We still decline to replay a POST: the only thing this client POSTs
+          # is a new bib, and the cost of being wrong about where the throttle
+          # was applied is a duplicate catalogue record somebody has to find and
+          # merge by hand. A failed create the user can simply retry is the
+          # cheaper mistake. The 429 is handed back like any other unsuccessful
+          # response so the caller can surface Alma's own message.
+          if !idempotent?(method)
+            log("Alma reported the per-second threshold on a #{method.to_s.upcase}; not retrying a non-idempotent request")
+          elsif attempt > max_retries
+            raise RequestFailedError, "Alma per-second threshold still exceeded after #{attempt} attempts"
+          else
+            delay = backoff_delay(attempt)
+            log("Alma reported the per-second threshold; backing off for #{format('%.2f', delay)}s (attempt #{attempt})")
+            @limiter.penalize(delay)
+            next
+          end
         end
 
         raise DailyThresholdError, daily_threshold_message(response) if daily_threshold?(response)
