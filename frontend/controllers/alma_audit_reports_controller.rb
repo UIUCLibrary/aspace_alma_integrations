@@ -9,6 +9,11 @@ require 'json'
 # bulk update.
 class AlmaAuditReportsController < ApplicationController
 
+  # ArchivesSpace's ApplicationController already enables this; stating it again
+  # here is free and keeps the guarantee visible on a controller that hands out
+  # report files and links to a job which rewrites catalogue records.
+  protect_from_forgery :with => :exception
+
   set_access_control 'view_repository' => [:index, :show, :download]
 
   include ExportHelper
