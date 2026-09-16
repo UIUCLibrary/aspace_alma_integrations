@@ -55,8 +55,19 @@ module AlmaIntegrations
       # --- Audit behaviour --------------------------------------------------
       :bulk_fetch_size             => 100,
       :recommend_threshold         => 0.25,
-      :include_full_marc           => false,
+
+      # The MARC record as it currently stands in Alma is always kept in the
+      # report. It is the failsafe: if an update turns out to have been a
+      # mistake, this is the copy of what Alma held beforehand.
+      :store_alma_marc             => true,
+      # The outgoing record can always be regenerated from ArchivesSpace, so it
+      # is only stored on request.
+      :store_outgoing_marc         => false,
       :include_unpublished         => false,
+
+      # How long audit reports and their MARC snapshots are kept, in days.
+      # nil (the default) keeps them indefinitely.
+      :report_retention_days       => nil,
 
       # --- Update behaviour -------------------------------------------------
       # Refuse to overwrite an Alma record that changed after it was audited.
@@ -89,7 +100,9 @@ module AlmaIntegrations
         :read_timeout         => :alma_read_timeout,
         :bulk_fetch_size      => :alma_bulk_fetch_size,
         :recommend_threshold  => :alma_audit_recommend_threshold,
-        :include_unpublished  => :alma_include_unpublished
+        :include_unpublished  => :alma_include_unpublished,
+        :store_alma_marc      => :alma_audit_store_alma_marc,
+        :report_retention_days => :alma_audit_report_retention_days
       }.each do |key, app_config_key|
         value = app_config(app_config_key)
         values[key] = value unless value.nil?
@@ -141,7 +154,8 @@ module AlmaIntegrations
         'normalize_punctuation' => !!self[:normalize_punctuation],
         'normalize_case'        => !!self[:normalize_case],
         'include_unpublished'   => !!self[:include_unpublished],
-        'include_full_marc'     => !!self[:include_full_marc],
+        'store_alma_marc'       => !!self[:store_alma_marc],
+        'store_outgoing_marc'   => !!self[:store_outgoing_marc],
         'mms_field'             => self[:mms_field]
       }
     end

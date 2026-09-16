@@ -10,7 +10,11 @@ module AlmaIntegrations
   # real time passing.
   class RateLimiter
 
-    attr_reader :rate, :interval
+    attr_reader :interval
+
+    def rate
+      @mutex.synchronize { @rate }
+    end
 
     def initialize(rate: 19, interval: 1.0, clock: nil, sleeper: nil)
       rate = rate.to_f
@@ -47,9 +51,10 @@ module AlmaIntegrations
           @sleeper.call(delay)
           waited += delay
         end
+
+        @total_waited += waited
       end
 
-      @total_waited += waited
       waited
     end
 
@@ -68,8 +73,22 @@ module AlmaIntegrations
       end
     end
 
+    # Lowers (or raises) the sustained rate. The bucket is never allowed to hold
+    # more tokens than the new rate permits, so a reduction takes effect
+    # immediately rather than after the existing burst drains.
+    def rate=(new_rate)
+      new_rate = new_rate.to_f
+      raise ArgumentError, 'rate must be positive' unless new_rate > 0
+
+      @mutex.synchronize do
+        refill
+        @rate = new_rate
+        @tokens = [@tokens, new_rate].min
+      end
+    end
+
     def total_waited
-      @total_waited
+      @mutex.synchronize { @total_waited }
     end
 
     private

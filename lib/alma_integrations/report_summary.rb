@@ -108,9 +108,25 @@ module AlmaIntegrations
         'records' => @records.dup,
         'errors_by_kind' => @error_kinds.dup,
         'fields' => field_rows,
+        'excluded_from_summary' => excluded_from_summary,
         'recommended_preserve_tags' => recommended_preserve_tags,
         'warnings' => warnings
       }
+    end
+
+    # Control fields such as 001, 003 and 005 differ mechanically on every single
+    # record, so counting them would drown out the fields a cataloguer actually
+    # cares about. They are left out of the headline counts but still compared,
+    # and the per-record detail is in the downloadable JSON. The interface says so
+    # explicitly rather than quietly hiding them.
+    def excluded_from_summary
+      @ignored_tags.map do |tag|
+        {
+          'tag' => tag,
+          'label' => MarcLabels.tag_label(tag),
+          'reason' => 'Differs mechanically on every record; see the per-record detail in the JSON report.'
+        }
+      end
     end
 
     private
