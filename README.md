@@ -137,6 +137,20 @@ bundle exec rspec
 
 The suite covers the parts where a quiet mistake would be expensive: the MARC diff engine, the field preserver, the rate limiter, Alma error parsing, identifier parsing, and the report builder. It runs on every push via GitHub Actions.
 
+## A local ArchivesSpace to test against
+
+The unit tests deliberately do not need ArchivesSpace, but the job runners, the forms and the report page do. [`docker/`](docker/README.md) contains a Docker Compose stack that runs ArchivesSpace, MySQL and Solr locally with this plugin mounted, and scripts that copy a database dump and Solr index down from an existing server so you are testing against real records rather than an empty database.
+
+```
+cd docker
+cp .env.example .env                      # edit: remote host, credentials
+cp config/config.rb.example config/config.rb   # edit: Alma sandbox API key
+./scripts/fetch-remote.sh                 # pull down the database and index
+./scripts/up.sh --fresh
+```
+
+See [`docker/README.md`](docker/README.md) for the full walkthrough, including the Apple Silicon notes.
+
 # Using the integrations
 
 The integrations may be accessed via the repository menu:

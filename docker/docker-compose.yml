@@ -1,0 +1,129 @@
+# Local ArchivesSpace for working on the Alma integrations plugin.
+#
+# The point of this file is to let you mirror a remote server: point it at a
+# mysqldump and (optionally) a copy of that server's Solr index, bind-mount
+# this plugin's source, and get a working staff interface on localhost.
+#
+#   cd docker
+#   cp .env.example .env                    # edit it
+#   cp config/config.rb.example config/config.rb
+#   ./scripts/fetch-remote.sh               # pull down db + solr
+#   ./scripts/up.sh
+#
+# Everything is driven from .env. See README.md for the full walkthrough.
+
+name: aspace-alma
+
+services:
+
+  db:
+    image: mysql:${MYSQL_VERSION:-8.0}
+    platform: ${ASPACE_PLATFORM:-linux/amd64}
+    command:
+      # ArchivesSpace requires utf8mb4 end to end; getting this wrong shows up
+      # much later as mangled diacritics in MARC output, which is exactly the
+      # sort of thing this plugin's audit would then report as a difference.
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      # ArchivesSpace creates triggers during migration. Without this, a
+      # restore or migration fails on a stock MySQL 8 with binary logging.
+      - --log-bin-trust-function-creators=1
+      # A dump of a real repository restores far faster with a larger buffer.
+      - --innodb-buffer-pool-size=1G
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root123}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-archivesspace}
+      MYSQL_USER: ${MYSQL_USER:-as}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-as123}
+    ports:
+      - "${MYSQL_PORT:-3306}:3306"
+    volumes:
+      - db-data:/var/lib/mysql
+      # Anything in here is applied on FIRST START of an empty database, in
+      # filename order. fetch-remote.sh drops the dump here, so a clean
+      # `up.sh --fresh` restores the mirror automatically.
+      - ./data/db-dump:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-root123}"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      # Restoring a large dump on first boot can take a while, and the
+      # container is not answering pings during it. This start period stops
+      # Compose declaring the database unhealthy while it is still loading.
+      start_period: 10m
+
+  solr:
+    # ArchivesSpace publishes its Solr image under the same tag as the
+    # application, so the configset and schema always match the app version.
+    # Do not substitute a stock solr image unless you also supply the ASpace
+    # configset -- the schema is not the default one.
+    image: archivesspace/solr:${ASPACE_VERSION:-4.2.1}
+    platform: ${ASPACE_PLATFORM:-linux/amd64}
+    # The image ships the ArchivesSpace configset but does not create the core,
+    # so it has to be precreated on first start. Without this you get an empty
+    # /var/solr/data and ArchivesSpace cannot reach its index.
+    command:
+      - solr-precreate
+      - archivesspace
+      - /opt/solr/server/solr/configsets/archivesspace
+    environment:
+      SOLR_JAVA_MEM: ${SOLR_JAVA_MEM:--Xms512m -Xmx1g}
+    ports:
+      - "${SOLR_PORT:-8983}:8983"
+    volumes:
+      - solr-data:/var/solr
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8983/solr/archivesspace/admin/ping || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 2m
+
+  archivesspace:
+    image: archivesspace/archivesspace:${ASPACE_VERSION:-4.2.1}
+    platform: ${ASPACE_PLATFORM:-linux/amd64}
+    depends_on:
+      db:
+        condition: service_healthy
+      solr:
+        condition: service_healthy
+    environment:
+      # ArchivesSpace reads APPCONFIG_* environment variables and maps them
+      # onto AppConfig keys. These few are set here because they describe the
+      # container wiring rather than your preferences; everything else -- and
+      # notably the Alma settings -- lives in config/config.rb.
+      APPCONFIG_DB_URL: "jdbc:mysql://db:3306/${MYSQL_DATABASE:-archivesspace}?user=${MYSQL_USER:-as}&password=${MYSQL_PASSWORD:-as123}&useUnicode=true&characterEncoding=UTF-8&serverTimezone=UTC"
+      APPCONFIG_SOLR_URL: "http://solr:8983/solr/archivesspace"
+      APPCONFIG_ENABLE_INDEXER: "${ASPACE_INDEXER_ENABLED:-true}"
+      APPCONFIG_PUI_INDEXER_ENABLED: "${ASPACE_INDEXER_ENABLED:-true}"
+      JAVA_OPTS: "${ASPACE_JAVA_XMX:--Xmx2g}"
+    ports:
+      - "${STAFF_PORT:-8080}:8080"
+      - "${PUBLIC_PORT:-8081}:8081"
+      - "${OAI_PORT:-8082}:8082"
+      - "${BACKEND_PORT:-8089}:8089"
+    volumes:
+      # The plugin itself, live from your working copy. Ruby files under
+      # frontend/ are picked up on restart; you do not need to rebuild
+      # anything, just `docker compose restart archivesspace`.
+      - ../:/archivesspace/plugins/alma_integrations:ro
+      # Your local config. This is where AppConfig[:plugins] switches the
+      # plugin on and where the Alma API credentials go.
+      - ./config/config.rb:/archivesspace/config/config.rb:ro
+      # Job output lives here -- audit report JSON included. Keeping it on a
+      # named volume means reports survive a container restart.
+      - aspace-data:/archivesspace/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8089/ || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 40
+      # First boot runs database migrations, which on a large restored dump
+      # is genuinely slow, and slower again under emulation on Apple Silicon.
+      start_period: 15m
+
+volumes:
+  db-data:
+  solr-data:
+  aspace-data:

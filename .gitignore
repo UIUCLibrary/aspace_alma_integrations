@@ -1,0 +1,18 @@
+# Local development artefacts. None of this belongs in the repository: the
+# database dump and Solr index are copies of production data, and the config
+# file holds a real Alma API key.
+docker/data/
+docker/config/config.rb
+docker/.env
+
+# Ruby
+.bundle/
+vendor/bundle/
+Gemfile.lock
+*.gem
+
+# Editors and OS noise
+.DS_Store
+*.swp
+.idea/
+.vscode/
