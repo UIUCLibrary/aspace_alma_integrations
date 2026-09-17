@@ -56,18 +56,23 @@ cp config/config.rb.example config/config.rb
 
 Now edit both:
 
-* **`.env`** — set `REMOTE_HOST`, `REMOTE_USER`, `REMOTE_DB_*` and
-  `REMOTE_SOLR_DATA` to point at the server you are mirroring.
+* **`.env`** — ports and memory. The defaults are fine to start with.
 * **`config/config.rb`** — put your **Alma sandbox** API key in
   `AppConfig[:alma_apikey]`, and set `AppConfig[:alma_holdings]` to your
   location codes.
 
-Then:
+Then copy the database dump and Solr index down from the server by hand and
+drop them into `docker/data/` — see
+[Copying the data down from a server](#copying-the-data-down-from-a-server)
+below for exactly what goes where. Then:
 
 ```bash
-./scripts/fetch-remote.sh     # pull down the database and Solr index
-./scripts/up.sh --fresh       # restore them and start
+./scripts/check-data.sh       # confirms the files are where they should be
+./scripts/up.sh --fresh       # restores them and starts
 ```
+
+You can skip the data entirely and start with an empty ArchivesSpace
+(`admin` / `admin`) if you just want to see the plugin's screens.
 
 When it finishes you get:
 
@@ -86,46 +91,115 @@ jobs are under **Create → Job → Alma Audit**.
 
 ---
 
-## Pulling data down from a server
+## Copying the data down from a server
 
-`./scripts/fetch-remote.sh` does both halves; `--db-only` and `--solr-only`
-do one at a time.
+Nothing here reaches out to the server for you, so you need no SSH key and no
+credentials in any config file. Copy two things down by whatever means you
+normally use — `scp`, `rsync`, an SFTP client, a colleague sending you a dump —
+put them in `docker/data/`, and run `./scripts/check-data.sh` to confirm they
+landed where the containers will look.
 
-### The database
+### What goes where
 
-The dump is produced *on the remote host* and streamed back over SSH
-compressed, so nothing large is written to that server's disk. It uses
-`--single-transaction`, which takes a consistent snapshot without locking
-tables — safe to run against a server other people are using.
+| What | Where it is on the server | Where to put it locally |
+|---|---|---|
+| Database dump | you create it, see below | `docker/data/db-dump/01-archivesspace.sql.gz` |
+| Solr index | `/var/solr/data/archivesspace` | `docker/data/solr/archivesspace` |
+| Indexer state (optional) | `<aspace>/data/indexer_state` | `docker/data/indexer_state` |
+| PUI indexer state (optional) | `<aspace>/data/indexer_pui_state` | `docker/data/indexer_pui_state` |
 
-It includes `--routines` and `--triggers`. ArchivesSpace uses both, and a dump
-without them restores into a database that looks fine and then misbehaves.
+`<aspace>` is the ArchivesSpace install directory, usually `/opt/archivesspace`.
 
-The password is passed to `mysqldump` through the environment rather than on
-the command line, so it does not show up in that server's process list.
+The finished layout:
 
-The result lands in `data/db-dump/01-archivesspace.sql.gz`. MySQL's entrypoint
-applies everything in that directory on **first start of an empty database** —
-which is why restoring means `up.sh --fresh` rather than a plain restart.
+```
+docker/data/
+├── db-dump/
+│   └── 01-archivesspace.sql.gz
+├── solr/
+│   └── archivesspace/          <- the core directory, copied whole
+│       ├── conf/
+│       ├── core.properties
+│       └── data/
+│           └── index/
+├── indexer_state/              <- optional
+└── indexer_pui_state/          <- optional
+```
+
+`docker/data/` is gitignored, so nothing you put there can be committed by
+accident.
+
+### The database dump
+
+Take the dump on the server:
+
+```bash
+mysqldump --single-transaction --quick --routines --triggers \
+          --default-character-set=utf8mb4 --no-tablespaces \
+          -u archivesspace -p archivesspace | gzip > archivesspace.sql.gz
+```
+
+Then copy `archivesspace.sql.gz` to your laptop and put it at
+`docker/data/db-dump/01-archivesspace.sql.gz`.
+
+Those flags matter:
+
+* **`--routines --triggers`** — ArchivesSpace uses both. A dump without them
+  restores into a database that looks complete and then misbehaves. This is the
+  single easiest thing to get wrong.
+* **`--single-transaction`** — a consistent snapshot without locking tables, so
+  it is safe to run against a server other people are using.
+* **`--default-character-set=utf8mb4`** — ArchivesSpace stores UTF-8, and
+  anything else mangles diacritics in exactly the records you care about.
+* **`--no-tablespaces`** — avoids needing the `PROCESS` privilege, which a
+  read-only reporting account usually lacks.
+
+Naming and placement rules, because MySQL rather than this project imposes them:
+
+* It must be **inside `docker/data/db-dump/`**. That directory is mounted at
+  MySQL's `/docker-entrypoint-initdb.d`.
+* **Exactly one dump in that directory.** MySQL runs everything in there in
+  filename order, so a second file is applied on top of the first.
+* The name is up to you as long as it ends in **`.sql` or `.sql.gz`**. The `01-`
+  prefix is only a convention for keeping the order obvious.
+* Uncompressed `.sql` works too; gzip just transfers faster.
+
+MySQL only applies the dump on the **first start of an empty database**, which
+is why restoring means `./scripts/up.sh --fresh` and not a plain restart.
 
 ### The Solr index — and why you may not want it
 
-The script rsyncs the remote index into `data/solr`, and `up.sh --fresh` copies
-it into the Solr container.
+Copy the **`archivesspace` core directory** whole, so that you end up with
+`docker/data/solr/archivesspace/data/index/`. On a stock install with a
+standalone Solr that directory is `/var/solr/data/archivesspace`; with the
+bundled Solr it is under the ArchivesSpace home instead. From your laptop:
+
+```bash
+rsync -az user@server:/var/solr/data/archivesspace/ \
+      docker/data/solr/archivesspace/
+```
+
+`restore-solr.sh` also accepts `data/solr/data/index` and `data/solr/index`, so
+if you copied a level too high or too low it will still find the index.
 
 **The catch:** Lucene will only open an index written by its own major version
-or the one before it. If the server runs an older Solr than the ArchivesSpace
-image you have pinned, the core will refuse to load and you get an opaque
-exception at startup. `fetch-remote.sh` prints the remote index format so you
-get some warning, and `restore-solr.sh` tells you what to do if it fails.
+or the one before it. ArchivesSpace 4.2.1 ships Solr 9, so a Solr 8 or 9 index
+opens and anything older does not — and the failure is an opaque exception at
+startup. `check-data.sh` prints the index format so you get some warning, and
+`restore-solr.sh` tells you what to do if it fails.
 
 There is also no point copying an index that was being written to at the time,
 though on a quiet dev server that is rarely a problem in practice.
 
-**The reliable alternative is to skip the copy entirely:**
+Note that only `data/` is restored into the container: the image's own `conf/`
+is kept. ArchivesSpace verifies the Solr schema against the version it expects
+and refuses to start on a mismatch, so a `conf/` from a server running a
+different ArchivesSpace release would break startup with an error pointing at
+Solr rather than at the real cause.
+
+**The reliable alternative is to skip the index entirely:**
 
 ```bash
-./scripts/fetch-remote.sh --db-only
 ./scripts/up.sh --fresh
 ./scripts/reindex.sh
 ```
@@ -137,6 +211,25 @@ this plugin, note that **the Alma jobs read from the database, not from Solr.**
 Solr only drives search and browse. A stale or missing index will not affect an
 audit run at all. Reindex when you need to *find* records in the staff
 interface, not to run a job against them.
+
+### Indexer state
+
+`indexer_state` and `indexer_pui_state` record how far the indexer has got.
+They are small. Copying the index without them means ArchivesSpace concludes it
+has indexed nothing and re-crawls the whole repository on first start, which
+throws away much of the benefit of copying the index. Either copy them too, or
+set `ASPACE_INDEXER_ENABLED=false` in `.env` to leave the copied index alone.
+
+### Checking it landed correctly
+
+```bash
+./scripts/check-data.sh
+```
+
+It reports what it found and exits non-zero if something would actually break:
+more than one dump, a truncated download, a file that is not a MySQL dump, or a
+`data/solr` with no index in it. It also warns about the things that are merely
+slow or surprising, like a missing indexer state.
 
 ---
 
@@ -251,8 +344,16 @@ above. `docker compose logs solr` confirms it; `./scripts/reindex.sh` fixes it.
 `./scripts/reindex.sh`. Again, this does not affect the Alma jobs.
 
 **`Table 'x' doesn't exist` or migration errors.** The dump was probably taken
-without `--routines --triggers`. Re-run `./scripts/fetch-remote.sh --db-only`
-and `./scripts/up.sh --fresh`.
+without `--routines --triggers`. Re-take it on the server with the flags in
+[The database dump](#the-database-dump), replace
+`data/db-dump/01-archivesspace.sql.gz`, and run `./scripts/up.sh --fresh`.
+
+**The dump seems not to have been applied at all.** MySQL only runs
+`/docker-entrypoint-initdb.d` on the first start of an *empty* database, so a
+plain restart will not pick up a newly copied dump. Use `./scripts/up.sh
+--fresh`, which wipes the volume first. Check `./scripts/check-data.sh` shows
+exactly one dump, too — a second file in `data/db-dump/` is applied on top of
+the first.
 
 **Out of memory / the JVM dies.** Raise Docker's memory allocation, or lower
 `ASPACE_JAVA_XMX` and `SOLR_JAVA_MEM` in `.env`.

@@ -7,7 +7,7 @@
 #   cd docker
 #   cp .env.example .env                    # edit it
 #   cp config/config.rb.example config/config.rb
-#   ./scripts/fetch-remote.sh               # pull down db + solr
+#   ./scripts/check-data.sh                 # verify copied-down db + solr
 #   ./scripts/up.sh
 #
 # Everything is driven from .env. See README.md for the full walkthrough.
@@ -40,7 +40,7 @@ services:
     volumes:
       - db-data:/var/lib/mysql
       # Anything in here is applied on FIRST START of an empty database, in
-      # filename order. fetch-remote.sh drops the dump here, so a clean
+      # filename order. You put the dump here by hand, so a clean
       # `up.sh --fresh` restores the mirror automatically.
       - ./data/db-dump:/docker-entrypoint-initdb.d:ro
     healthcheck:

@@ -23,14 +23,17 @@ cd "$(dirname "$0")/.."
 set -a; source .env; set +a
 
 if [[ ! -d data/solr ]]; then
-  echo "error: data/solr does not exist. Run ./scripts/fetch-remote.sh first." >&2
+  echo "error: data/solr does not exist." >&2
+  echo "       Copy the server's 'archivesspace' Solr core directory to" >&2
+  echo "       data/solr/archivesspace -- see README.md -- or skip the copy" >&2
+  echo "       and build the index locally with ./scripts/reindex.sh." >&2
   exit 1
 fi
 
-# People point REMOTE_SOLR_DATA at different levels depending on how their
-# server is laid out, so accept any of the usual shapes rather than failing on
-# a technicality. What we want is the core's data directory: the one that
-# contains index/.
+# People copy from different levels depending on how their server is laid out
+# and which directory they grabbed, so accept any of the usual shapes rather
+# than failing on a technicality. What we want is the core's data directory:
+# the one that contains index/.
 if [[ -d data/solr/archivesspace/data/index ]]; then
   SRC="data/solr/archivesspace/data"
 elif [[ -d data/solr/data/index ]]; then
@@ -40,8 +43,10 @@ elif [[ -d data/solr/index ]]; then
 else
   echo "error: no Solr index found under data/solr." >&2
   echo "       Looked for archivesspace/data/index, data/index and index/." >&2
-  echo "       Check REMOTE_SOLR_DATA in .env, or skip the copy entirely and" >&2
-  echo "       build the index locally with ./scripts/reindex.sh." >&2
+  echo "       Copy the whole 'archivesspace' core directory from the server," >&2
+  echo "       so that you end up with data/solr/archivesspace/data/index --" >&2
+  echo "       see README.md -- or skip the copy entirely and build the index" >&2
+  echo "       locally with ./scripts/reindex.sh." >&2
   exit 1
 fi
 
@@ -101,7 +106,7 @@ for _ in $(seq 1 60); do
     echo "==> Solr is up with ${NUM} documents."
     if [[ "${NUM}" == "0" ]]; then
       echo "    Zero documents means the copy did not take. Check that"
-      echo "    REMOTE_SOLR_DATA pointed at the core itself, not its parent."
+      echo "    you copied the core's data directory rather than the core."
     fi
     exit 0
   fi

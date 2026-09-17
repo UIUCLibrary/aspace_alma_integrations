@@ -6,7 +6,7 @@
 #   ./scripts/up.sh --fresh      # wipe local volumes and restore from ./data
 #   ./scripts/up.sh --logs       # start, then follow the ArchivesSpace log
 #
-# --fresh is what you want after fetch-remote.sh: MySQL only applies a dump to
+# --fresh is what you want after copying a dump down: MySQL only applies a dump to
 # an empty data directory, so an existing database must be removed first.
 
 set -euo pipefail
@@ -74,8 +74,10 @@ if [[ "${FRESH}" == true ]]; then
   DUMP=$(ls data/db-dump/*.sql data/db-dump/*.sql.gz 2>/dev/null | head -1 || true)
   if [[ -z "${DUMP}" ]]; then
     echo "note: no dump in data/db-dump, so this will be an EMPTY ArchivesSpace"
-    echo "      with just the default admin user. Run ./scripts/fetch-remote.sh"
-    echo "      first if you meant to mirror a server."
+    echo "      with just the default admin user. If you meant to mirror a"
+    echo "      server, copy its dump to data/db-dump/01-archivesspace.sql.gz"
+    echo "      first -- see README.md -- and check it with"
+    echo "      ./scripts/check-data.sh."
     echo
     read -r -p "Continue with an empty database? [y/N] " reply
     [[ "${reply}" =~ ^[Yy]$ ]] || exit 1

@@ -141,13 +141,18 @@ The suite covers the parts where a quiet mistake would be expensive: the MARC di
 
 ## A local ArchivesSpace to test against
 
-The unit tests deliberately do not need ArchivesSpace, but the job runners, the forms and the report page do. [`docker/`](docker/README.md) contains a Docker Compose stack that runs ArchivesSpace, MySQL and Solr locally with this plugin mounted, and scripts that copy a database dump and Solr index down from an existing server so you are testing against real records rather than an empty database.
+The unit tests deliberately do not need ArchivesSpace, but the job runners, the forms and the report page do. [`docker/`](docker/README.md) contains a Docker Compose stack that runs ArchivesSpace, MySQL and Solr locally with this plugin mounted, so you can test against a copy of a real repository rather than an empty database.
 
 ```
 cd docker
-cp .env.example .env                      # edit: remote host, credentials
+cp .env.example .env
 cp config/config.rb.example config/config.rb   # edit: Alma sandbox API key
-./scripts/fetch-remote.sh                 # pull down the database and index
+```
+
+Then copy a database dump and, optionally, a Solr index down from an existing server into `docker/data/` — [`docker/README.md`](docker/README.md) says which directories to take and where to put them — and start:
+
+```
+./scripts/check-data.sh    # confirms the files are where they should be
 ./scripts/up.sh --fresh
 ```
 
