@@ -204,6 +204,19 @@ defaults to dry-run, but do not rely on that as your only safeguard.
 
 ## Troubleshooting
 
+### ArchivesSpace exits during startup with a Bundler error
+
+If the log shows `You cannot specify the same gem twice with different version
+requirements`, something has put a `Gemfile` in the plugin root. ArchivesSpace
+evaluates every `plugins/*/Gemfile` into its own bundle at boot, so a version
+constraint there is resolved against ArchivesSpace's own pins, and a conflict
+stops the whole application from starting. This plugin keeps its test-only
+dependencies in `spec/Gemfile` for exactly this reason. The stack trace points
+at ArchivesSpace's own Gemfile, so read a few lines further down for the
+`plugins/alma_integrations/Gemfile` frame that names the real culprit.
+
+
+
 **First start seems hung.** It probably is not. Migrations against a restored
 dump are slow, and slow again under emulation. `./scripts/logs.sh` will show
 what it is doing. The healthcheck allows 15 minutes before complaining.

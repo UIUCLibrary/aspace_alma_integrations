@@ -8,6 +8,11 @@ on:
 permissions:
   contents: read
 
+env:
+  # ArchivesSpace evaluates plugins/*/Gemfile at boot, so this plugin keeps its
+  # test-only dependencies in spec/Gemfile instead of the plugin root.
+  BUNDLE_GEMFILE: spec/Gemfile
+
 jobs:
   rspec:
     runs-on: ubuntu-latest
@@ -30,6 +35,20 @@ jobs:
 
       - name: Run the specs
         run: bundle exec rspec
+
+      - name: Check that the plugin root has no Gemfile
+        # ArchivesSpace merges plugins/*/Gemfile into its own bundle at boot, so
+        # a Gemfile here is not private to development: an incompatible pin
+        # stops ArchivesSpace from starting at all. The test-only manifest lives
+        # in spec/Gemfile for that reason.
+        run: |
+          if [ -e Gemfile ]; then
+            echo "A Gemfile in the plugin root will be evaluated by" \
+                 "ArchivesSpace at boot. Put test-only gems in spec/Gemfile." >&2
+            exit 1
+          fi
+          echo "No Gemfile in the plugin root."
+
 
       - name: Check that every Ruby file parses
         run: |

@@ -14,8 +14,9 @@ module AlmaIntegrations
   # is repository-scoped, so callers must already be inside
   # `RequestContext.open(:repo_id => ...)`.
   class AspaceMarcGenerator
-    include ExportHelpers
-    include URIResolver
+    # Built at load time so that two job threads reaching exporter_class at
+    # once cannot each create a mutex and both proceed.
+    EXPORTER_MUTEX = Mutex.new
 
     def initialize(settings: nil)
       @settings = settings || Settings.new
@@ -27,7 +28,7 @@ module AlmaIntegrations
     def generate(resource_id, include_unpublished: nil)
       include_unpublished = @settings[:include_unpublished] if include_unpublished.nil?
 
-      generate_marc(resource_id, !!include_unpublished)
+      exporter.generate_marc(resource_id, !!include_unpublished)
     end
 
     # The record as it would actually arrive in Alma: the ArchivesSpace export
@@ -40,6 +41,32 @@ module AlmaIntegrations
       aspace_marc = generate(resource_id, :include_unpublished => include_unpublished)
 
       @preserver.apply(aspace_marc, alma_record)
+    end
+
+    private
+
+    def exporter
+      @exporter ||= self.class.exporter_class.new
+    end
+
+    class << self
+      # ExportHelpers and URIResolver are defined by the backend's exporter
+      # code, which is loaded well after this file is. ArchivesSpace requires
+      # every plugin job runner from background_job_queue.rb near the top of
+      # backend boot, so `include ExportHelpers` in the class body raises
+      # NameError and takes the whole application down with it -- the backend
+      # never finishes starting and the staff interface just reports a 500.
+      #
+      # Resolving the mixins on first use instead means the constants are only
+      # looked up from inside a running job, by which point they exist.
+      def exporter_class
+        EXPORTER_MUTEX.synchronize do
+          @exporter_class ||= Class.new do
+            include ExportHelpers
+            include URIResolver
+          end
+        end
+      end
     end
   end
 end

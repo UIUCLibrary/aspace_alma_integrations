@@ -1,0 +1,20 @@
+source 'https://rubygems.org'
+
+# Test-only dependencies for this plugin's RSpec suite.
+#
+# This file deliberately lives in spec/ rather than the plugin root.
+# ArchivesSpace evaluates plugins/*/Gemfile into its own bundle at boot, so a
+# Gemfile in the plugin root is not a private development manifest: its version
+# constraints are merged with ArchivesSpace's own. Declaring nokogiri here, at a
+# version newer than the one ArchivesSpace pins, is enough to make Bundler
+# refuse to resolve and ArchivesSpace refuse to start.
+#
+# Run the suite with:
+#
+#   BUNDLE_GEMFILE=spec/Gemfile bundle install
+#   BUNDLE_GEMFILE=spec/Gemfile bundle exec rspec
+#
+# Do not add a Gemfile to the plugin root unless the plugin genuinely needs a
+# gem at runtime, and then pin it compatibly with the target ArchivesSpace.
+gem 'nokogiri'
+gem 'rspec', '~> 3.12'

@@ -131,9 +131,11 @@ The risk I would actually keep an eye on is not the database: it is Alma. The da
 The shared library under `lib/` is plain Ruby with no ArchivesSpace dependencies, so it can be tested without a running instance:
 
 ```
-bundle install
-bundle exec rspec
+BUNDLE_GEMFILE=spec/Gemfile bundle install
+BUNDLE_GEMFILE=spec/Gemfile bundle exec rspec
 ```
+
+The test manifest is `spec/Gemfile`, not a `Gemfile` in the plugin root, and that is deliberate. ArchivesSpace evaluates every `plugins/*/Gemfile` into its own bundle when it boots, so a Gemfile here is not a private development file: its version constraints are resolved together with ArchivesSpace's. Declaring a gem that ArchivesSpace already pins, at a different version, makes Bundler refuse to resolve and ArchivesSpace refuse to start — with a stack trace that points at ArchivesSpace's Gemfile rather than at the plugin. CI fails the build if a `Gemfile` reappears in the plugin root. Only add one if the plugin genuinely needs a gem at runtime, and then pin it compatibly with the ArchivesSpace release you are targeting.
 
 The suite covers the parts where a quiet mistake would be expensive: the MARC diff engine, the field preserver, the rate limiter, Alma error parsing, identifier parsing, and the report builder. It runs on every push via GitHub Actions.
 
