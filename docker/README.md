@@ -204,6 +204,23 @@ defaults to dry-run, but do not rely on that as your only safeguard.
 
 ## Troubleshooting
 
+### The backend returns 500 and the log mentions `schema_info`
+
+`Table 'archivesspace.schema_info' doesn't exist` means the database has no
+ArchivesSpace schema in it. ArchivesSpace does not migrate on startup -- it
+checks the schema version and refuses to run if the tables are missing -- so an
+empty database needs the migrations applied first. `up.sh` does this for you on
+every start; to do it by hand:
+
+```
+docker compose run --rm --no-deps \
+  --entrypoint /archivesspace/scripts/setup-database.sh archivesspace
+```
+
+If that fails, check that `ASPACE_VERSION` in `.env` is at least the version the
+dump came from. ArchivesSpace migrates forward only, so pointing 4.2.1 at a dump
+from a newer release will not work.
+
 ### ArchivesSpace exits during startup with a Bundler error
 
 If the log shows `You cannot specify the same gem twice with different version

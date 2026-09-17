@@ -95,7 +95,37 @@ if [[ "${FRESH}" == true ]]; then
   fi
 fi
 
-echo "==> Starting"
+echo "==> Starting the database and Solr"
+docker compose up -d db solr
+
+# ArchivesSpace does not migrate the database on startup: it checks the schema
+# version and refuses to start if the tables are not there. That is the right
+# behaviour on a production server, but it means an empty database -- or one
+# restored from a server running an older ArchivesSpace -- needs the migrations
+# run explicitly, or the backend just returns 500 with
+# "Table 'archivesspace.schema_info' doesn't exist" buried in the log.
+#
+# setup-database.sh is idempotent: on an already-current database it applies
+# nothing and exits cleanly, so it is safe to run on every start.
+echo "==> Applying database migrations"
+echo "    (no-op if the schema is already current)"
+if ! docker compose run --rm --no-deps -T \
+       --entrypoint /archivesspace/scripts/setup-database.sh \
+       archivesspace > /tmp/aspace-setup-database.log 2>&1; then
+  echo
+  echo "error: the database migrations failed. The last 20 lines were:" >&2
+  tail -20 /tmp/aspace-setup-database.log >&2
+  echo >&2
+  echo "  Full log: /tmp/aspace-setup-database.log" >&2
+  echo >&2
+  echo "  A common cause is a dump taken from a NEWER ArchivesSpace than" >&2
+  echo "  ASPACE_VERSION in .env. ArchivesSpace migrates forward only, so" >&2
+  echo "  set ASPACE_VERSION to at least the version the dump came from." >&2
+  exit 1
+fi
+echo "    done"
+
+echo "==> Starting ArchivesSpace"
 docker compose up -d
 
 echo
