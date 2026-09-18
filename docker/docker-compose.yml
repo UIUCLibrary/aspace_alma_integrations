@@ -129,6 +129,9 @@ services:
       APPCONFIG_ENABLE_INDEXER: "${ASPACE_INDEXER_ENABLED:-true}"
       APPCONFIG_PUI_INDEXER_ENABLED: "${ASPACE_INDEXER_ENABLED:-true}"
       JAVA_OPTS: "${ASPACE_JAVA_XMX:--Xmx2g}"
+      # Render real stack traces in the browser instead of a generic apology
+      # page. Read by docker/dev_plugin, which is mounted below. Local only.
+      ASPACE_DEBUG_EXCEPTIONS: "${ASPACE_DEBUG_EXCEPTIONS:-true}"
     ports:
       - "${STAFF_PORT:-8080}:8080"
       - "${PUBLIC_PORT:-8081}:8081"
@@ -142,6 +145,11 @@ services:
       # Your local config. This is where AppConfig[:plugins] switches the
       # plugin on and where the Alma API credentials go.
       - ./config/config.rb:/archivesspace/config/config.rb:ro
+      # A development-only plugin that turns on Rails' detailed exception
+      # pages. It lives here rather than in the plugin so that it cannot be
+      # enabled on a real ArchivesSpace: stack traces in the browser leak
+      # source paths and internals.
+      - ./dev_plugin:/archivesspace/plugins/alma_dev_errors:ro
       # Job output lives here -- audit report JSON included. Keeping it on a
       # named volume means reports survive a container restart.
       - aspace-data:/archivesspace/data

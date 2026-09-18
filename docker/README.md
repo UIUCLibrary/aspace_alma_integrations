@@ -299,10 +299,57 @@ slow or surprising, like a missing indexer state.
 ./scripts/down.sh          # stop
 ./scripts/logs.sh          # follow the ArchivesSpace log
 ./scripts/logs.sh --jobs   # just job/alma/index lines -- use this to watch an audit
+./scripts/logs.sh --errors # just errors, with their stack traces
+./scripts/smoke.sh         # load every page the plugin adds and check it renders
 ./scripts/shell.sh         # shell inside the ArchivesSpace container
 ./scripts/shell.sh db      # MySQL client on the local database
 ./scripts/down.sh --clean  # delete local volumes (keeps ./data)
 ```
+
+### When something returns 500
+
+Two things make that quick to diagnose.
+
+The error page itself shows the exception, the backtrace and the offending
+source lines, because `ASPACE_DEBUG_EXCEPTIONS` is on by default. This is a
+local-only affordance: the plugin that enables it lives in `docker/dev_plugin`
+and is mounted only by this stack, never loaded by a real ArchivesSpace, since
+stack traces in the browser disclose source paths and internals. Set
+`ASPACE_DEBUG_EXCEPTIONS=false` in `.env` for the stock behaviour.
+
+For anything that does not surface in the browser -- a failing job, a backend
+error, a boot failure -- use the log. The indexer writes a round every thirty
+seconds, so a plain `logs.sh` buries the interesting part:
+
+```bash
+./scripts/logs.sh --errors                     # follow, errors only
+./scripts/logs.sh --errors --since 10m         # only what just happened
+./scripts/logs.sh --errors --no-follow --tail 2000
+```
+
+It drops the indexer chatter and JRuby's constant-redefinition warnings, and
+prints each error with the frames underneath it.
+
+### Checking every page still renders
+
+```bash
+./scripts/smoke.sh
+```
+
+This logs in, selects a repository and requests every page the plugin adds --
+the audit report list, the Alma integrations screens, and the job forms for
+both `alma_audit_job` and `alma_bulk_update_job` -- failing on a non-200 or on
+an error signature in the body.
+
+Run it before pushing. The RSpec suite covers the pure Ruby underneath the
+plugin and never renders a view, so a view calling a method ArchivesSpace does
+not have passes `rspec` and fails in the browser. That gap is real and this
+script is what closes it.
+
+It needs a repository to exist, because ArchivesSpace resolves job URLs through
+a `/repositories/:repo_id` template and returns 500 for all of them when the
+session has no repository selected. On a stack restored from a server dump
+there will be one already.
 
 ### Editing the plugin
 
@@ -326,10 +373,16 @@ The shared library has no ArchivesSpace dependencies, so its tests run on the
 host with no container at all:
 
 ```bash
-cd ..            # repository root
-bundle install
-bundle exec rspec
+cd ..                                        # repository root
+BUNDLE_GEMFILE=spec/Gemfile bundle install
+BUNDLE_GEMFILE=spec/Gemfile bundle exec rspec
 ```
+
+The manifest is `spec/Gemfile` rather than one in the plugin root on purpose;
+the reason is in the main README. These tests cover the MARC diffing, the
+report building and the rate limiter, and deliberately do not touch
+ArchivesSpace. For the parts that do -- controllers and views -- use
+`./scripts/smoke.sh` above.
 
 ---
 

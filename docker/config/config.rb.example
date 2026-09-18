@@ -15,7 +15,10 @@
 # The directory name must match the bind mount in docker-compose.yml. Listing
 # a plugin here is what makes ArchivesSpace load its frontend controllers,
 # backend job runners and schemas.
-AppConfig[:plugins] = ['local', 'lcnaf', 'alma_integrations']
+# alma_dev_errors is the development-only plugin in docker/dev_plugin that
+# makes Rails render real stack traces in the browser. Drop it from this
+# list if you would rather see ArchivesSpace's generic error page.
+AppConfig[:plugins] = ['local', 'lcnaf', 'alma_integrations', 'alma_dev_errors']
 
 # ---------------------------------------------------------------------------
 # Alma
