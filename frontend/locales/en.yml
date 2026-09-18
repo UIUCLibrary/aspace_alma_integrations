@@ -118,6 +118,8 @@ en:
     col_partial_loss: Some subfields lost
     marc_tag: "MARC %{tag}"
     ratio: "%{count} of %{total}"
+    show_records: Which records?
+    sample_note: "Showing %{shown} of %{total}. Download the JSON report for the complete list."
     preserved: Already preserved
     recommend_heading: Suggested additions to the preserve list
     recommend_intro: These fields lose data often enough across this set that carrying them over from Alma is probably what you want.

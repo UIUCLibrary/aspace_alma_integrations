@@ -1,0 +1,58 @@
+<%#
+  The records behind one of the counts in the report.
+
+  A count on its own ("1128 of 1200 records would lose MARC 035") tells you the
+  scale of the problem but not where to look, so each count opens up into the
+  records it came from, each one linking to the two MARC records side by side
+  with the differences already showing.
+
+  A plain <details> element rather than a scripted dropdown: it is a disclosure
+  widget in every current browser, it is keyboard accessible without any work,
+  and it does not depend on the frontend's JavaScript having loaded.
+
+  The list is a sample when the audit was large: the summary is stored on the
+  job and read whole every time this page is opened, so it cannot be allowed to
+  grow with the size of the audit. The count beside it is always the true total,
+  and the JSON report has every record.
+
+  Locals:
+    field     a row from summary['fields']
+    kind      'loss', 'change' or 'addition'
+    total     the true number of records affected
+    records   the shared pool of sampled records
+%>
+<%
+  indexes = (field['samples'] || {})[kind] || []
+  sampled = indexes.map { |index| records[index] }.compact
+%>
+
+<% unless sampled.empty? %>
+  <details class="alma-report-drilldown">
+    <summary><%= t('alma_audit_reports.show_records') %></summary>
+
+    <ul class="alma-report-record-list">
+      <% sampled.each do |record| %>
+        <% label = record['label'].presence || record['mms_id'].presence || record['uri'] %>
+        <li>
+          <% if record['uri'].present? %>
+            <%= link_to label,
+                        url_for(:controller => :alma_integrations, :action => :search,
+                                :ref => record['uri'], :record_type => 'bibs', :diff => 1),
+                        :title => record['title'] %>
+          <% else %>
+            <%= label %>
+          <% end %>
+          <% if record['title'].present? %>
+            <span class="alma-report-record-title"><%= record['title'] %></span>
+          <% end %>
+        </li>
+      <% end %>
+    </ul>
+
+    <% if sampled.length < total %>
+      <p class="help-block alma-report-sample-note">
+        <%= t('alma_audit_reports.sample_note', :shown => sampled.length, :total => total) %>
+      </p>
+    <% end %>
+  </details>
+<% end %>

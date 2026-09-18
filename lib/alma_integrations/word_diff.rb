@@ -17,9 +17,12 @@ module AlmaIntegrations
     # this only bites on values that really are largely different.
     MAX_TABLE_CELLS = 250_000
 
-    # Words and runs of whitespace are kept as separate tokens so the rebuilt
-    # value is byte-for-byte the original.
-    TOKEN_PATTERN = /\s+|\S+/.freeze
+    # Words, runs of whitespace and runs of punctuation are kept as separate
+    # tokens. Punctuation is split out because in MARC it frequently is the
+    # change -- ISBD punctuation, a trailing comma before $e -- and folding it
+    # into the neighbouring word would light up the word as well. The classes
+    # are Unicode aware, so non-Latin scripts tokenise the same way.
+    TOKEN_PATTERN = /\s+|[[:alnum:]]+|[^[:alnum:]\s]+/.freeze
 
     module_function
 

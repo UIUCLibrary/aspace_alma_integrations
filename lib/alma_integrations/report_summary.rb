@@ -23,12 +23,27 @@ module AlmaIntegrations
       subfields_lost
     ].freeze
 
+    SAMPLE_KINDS = %w[loss change addition].freeze
+
+    # The summary is stored in the job blob and loaded whole every time somebody
+    # opens the report, so the list of affected records it carries has to stay
+    # bounded no matter how large the audit was. Records are held once in a
+    # shared pool and referenced by index, and both the pool and each field's
+    # list are capped. The counters above are always the true totals, and the
+    # complete per-record detail is in the JSON report.
+    SAMPLE_LIMIT = 100
+    SAMPLE_RECORD_LIMIT = 500
+
     def initialize(settings = nil)
       @settings = settings.is_a?(Settings) ? settings : Settings.new(settings || {})
       @ignored_tags = Array(@settings[:ignored_tags]).map(&:to_s)
       @preserved_tags = Array(@settings[:preserved_tags]).map(&:to_s)
 
       @fields = {}
+      @samples = {}
+      @sampled_records = []
+      @sampled_index = {}
+      @samples_truncated = false
       @records = {
         'total' => 0,
         'audited' => 0,
@@ -62,8 +77,10 @@ module AlmaIntegrations
       @warnings << message unless @warnings.include?(message)
     end
 
-    # diff is the Hash returned by MarcDiff#diff.
-    def add_record(diff, network_zone_linked: false)
+    # diff is the Hash returned by MarcDiff#diff. record, when given, identifies
+    # the record so the report can link from a field straight to the two MARC
+    # records side by side.
+    def add_record(diff, network_zone_linked: false, record: nil)
       @records['audited'] += 1
       @records['network_zone_linked'] += 1 if network_zone_linked
 
@@ -96,6 +113,8 @@ module AlmaIntegrations
         counters['records_with_addition'] += 1 if entry['has_addition']
         counters['instances_lost'] += entry['instances_lost'].to_i
         counters['subfields_lost'] += entry['subfields_lost'].to_i
+
+        sample(entry, record) unless record.nil?
       end
     end
 
@@ -108,6 +127,9 @@ module AlmaIntegrations
         'records' => @records.dup,
         'errors_by_kind' => @error_kinds.dup,
         'fields' => field_rows,
+        'sampled_records' => @sampled_records.dup,
+        'samples_truncated' => @samples_truncated,
+        'sample_limit' => SAMPLE_LIMIT,
         'excluded_from_summary' => excluded_from_summary,
         'recommended_preserve_tags' => recommended_preserve_tags,
         'warnings' => warnings
@@ -131,6 +153,55 @@ module AlmaIntegrations
 
     private
 
+    # Notes this record against the field for each way it is affected, so the
+    # report can offer a list of records to go and look at rather than only a
+    # count. Capped: see SAMPLE_LIMIT.
+    def sample(entry, record)
+      kinds = []
+      kinds << 'loss' if entry['has_loss']
+      kinds << 'change' if entry['has_change']
+      kinds << 'addition' if entry['has_addition']
+      return if kinds.empty?
+
+      index = sampled_record_index(record)
+      return if index.nil?
+
+      lists = samples_for(entry['tag'])
+
+      kinds.each do |kind|
+        list = lists[kind]
+
+        if list.length >= SAMPLE_LIMIT
+          @samples_truncated = true
+          next
+        end
+
+        list << index
+      end
+    end
+
+    # Records are held once and referred to by index, so a record that loses ten
+    # different fields is stored once rather than ten times.
+    def sampled_record_index(record)
+      key = record['uri'] || record['mms_id'] || record['label']
+      return nil if key.nil?
+
+      existing = @sampled_index[key]
+      return existing unless existing.nil?
+
+      if @sampled_records.length >= SAMPLE_RECORD_LIMIT
+        @samples_truncated = true
+        return nil
+      end
+
+      @sampled_records << record
+      @sampled_index[key] = @sampled_records.length - 1
+    end
+
+    def samples_for(tag)
+      @samples[tag.to_s] ||= SAMPLE_KINDS.each_with_object({}) { |kind, out| out[kind] = [] }
+    end
+
     def counters_for(tag)
       @fields[tag.to_s] ||= FIELD_COUNTERS.each_with_object({}) { |name, out| out[name] = 0 }
     end
@@ -145,7 +216,8 @@ module AlmaIntegrations
           'ignored' => @ignored_tags.include?(tag),
           'preserved' => @preserved_tags.include?(tag),
           'loss_ratio' => ratio(counters['records_with_loss'], total),
-          'change_ratio' => ratio(counters['records_with_change'], total)
+          'change_ratio' => ratio(counters['records_with_change'], total),
+          'samples' => samples_for(tag)
         )
       end
 

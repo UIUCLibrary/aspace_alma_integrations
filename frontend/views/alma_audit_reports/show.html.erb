@@ -91,6 +91,10 @@
               <%= t('alma_audit_reports.ratio',
                     :count => field['records_with_loss'].to_i,
                     :total => field['records_in_alma'].to_i) %>
+              <%= render :partial => 'record_drilldown',
+                         :locals => { :field => field, :kind => 'loss',
+                                      :total => field['records_with_loss'].to_i,
+                                      :records => @sampled_records } %>
             </td>
             <td><%= field['records_with_full_loss'].to_i %></td>
             <td><%= field['records_with_partial_loss'].to_i %></td>
@@ -125,6 +129,10 @@
               <%= t('alma_audit_reports.ratio',
                     :count => field['records_with_change'].to_i,
                     :total => field['records_in_alma'].to_i) %>
+              <%= render :partial => 'record_drilldown',
+                         :locals => { :field => field, :kind => 'change',
+                                      :total => field['records_with_change'].to_i,
+                                      :records => @sampled_records } %>
             </td>
           </tr>
         <% end %>
@@ -150,7 +158,13 @@
               <strong><%= t('alma_audit_reports.marc_tag', :tag => field['tag']) %></strong>
               <%= field['label'] %>
             </td>
-            <td><%= field['records_with_addition'].to_i %></td>
+            <td>
+              <%= field['records_with_addition'].to_i %>
+              <%= render :partial => 'record_drilldown',
+                         :locals => { :field => field, :kind => 'addition',
+                                      :total => field['records_with_addition'].to_i,
+                                      :records => @sampled_records } %>
+            </td>
           </tr>
         <% end %>
       </tbody>

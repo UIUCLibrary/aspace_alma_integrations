@@ -53,6 +53,12 @@ class AlmaAuditReportsController < ApplicationController
     @warnings = Array(@summary['warnings'])
     @files = Array(@summary['files'])
 
+    # The records each field affects, so a count can be opened up into a list of
+    # records to go and look at. Held once and referenced by index by the field
+    # rows, and capped when the audit was large -- see ReportSummary.
+    @sampled_records = Array(@summary['sampled_records'])
+    @samples_truncated = @summary['samples_truncated'] ? true : false
+
     @loss_fields = @fields.select { |field| !field['ignored'] && field['records_with_loss'].to_i > 0 }
                           .sort_by { |field| -field['records_with_loss'].to_i }
     @change_fields = @fields.select { |field| !field['ignored'] && field['records_with_change'].to_i > 0 }

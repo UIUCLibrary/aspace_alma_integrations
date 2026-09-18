@@ -216,7 +216,9 @@ class AlmaAuditRunner < JobRunner
     outgoing = AlmaIntegrations::MarcRecord.parse(result.record)
 
     comparison = diff.diff(alma, outgoing)
-    @summary.add_record(comparison, :network_zone_linked => zone.linked?)
+    @summary.add_record(comparison,
+                        :network_zone_linked => zone.linked?,
+                        :record => summary_identity(resolution))
 
     entry = build_record_entry(resolution, comparison, zone, result)
     entry['alma_marc'] = alma.to_xml if settings[:store_alma_marc]
@@ -224,6 +226,21 @@ class AlmaAuditRunner < JobRunner
 
     @writer.add_record(entry)
     @plan.add(build_plan_entry(resolution, comparison, zone, alma))
+  end
+
+  # The identity the summary carries so the report can link a field to the
+  # records it affects. Deliberately small: the summary lives in the job blob
+  # and is loaded whole every time the report is opened, and the full detail is
+  # in the JSON report anyway.
+  def summary_identity(resolution)
+    label = resolution.ead_id || resolution.identifier || resolution.mms_id || resolution.input
+
+    {
+      'label' => label.to_s,
+      'title' => resolution.title.to_s[0, 120],
+      'uri' => resolution.uri,
+      'mms_id' => resolution.mms_id
+    }
   end
 
   def build_record_entry(resolution, comparison, zone, preserve_result)
