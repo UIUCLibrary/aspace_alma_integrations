@@ -54,13 +54,22 @@ job list|/jobs
 # Strings that mean the page blew up. ArchivesSpace runs Rails in production
 # mode, so a 500 renders a generic apology page and the real error only
 # reaches the log -- hence checking both the status code and the body.
-MARKERS='Template::Error|NoMethodError|NameError|undefined method|undefined local variable|Missing partial|Missing template|uninitialized constant|ActionView::|ActionController::|translation missing'
+MARKERS='Template::Error|NoMethodError|NameError|undefined method|undefined local variable|Missing partial|Missing template|uninitialized constant|ActionView::|ActionController::|translation missing: [^"< ]*'
+
+# Known-broken strings that belong to ArchivesSpace itself, not to this plugin.
+# status_canceled_completed is referenced by ArchivesSpace's own
+# jobs/_show_templates.html.erb but is not defined in any of its locale files in
+# 4.1.1, so it appears on every job page regardless of job type. Ignoring it
+# keeps the run honest about our own pages; drop entries here if a later
+# ArchivesSpace release fixes them.
+IGNORE='translation missing: en\.job\._frontend\.messages\.status_canceled_completed'
 
 echo "==> Logging in to ArchivesSpace as ${USER_NAME}"
 
 RESULT=$(docker compose exec -T \
   -e SMOKE_USER="$USER_NAME" -e SMOKE_PASS="$PASS" \
   -e SMOKE_PAGES="$PAGES" -e SMOKE_MARKERS="$MARKERS" -e SMOKE_VERBOSE="$VERBOSE" \
+  -e SMOKE_IGNORE="$IGNORE" \
   archivesspace sh -s <<'INNER'
 set -u
 cd /tmp || exit 1
@@ -134,7 +143,8 @@ AUDIT_ID=$(wget -q -O - --load-cookies smoke_cookies.txt \
 
 if [ -n "${AUDIT_ID:-}" ]; then
   SMOKE_PAGES="${SMOKE_PAGES}
-audit report detail|/plugins/alma_audit_reports/${AUDIT_ID}"
+audit report detail|/plugins/alma_audit_reports/${AUDIT_ID}
+audit job detail|/jobs/${AUDIT_ID}"
   echo "OK|found audit ${AUDIT_ID}, checking its report page too"
 else
   echo "OK|no completed audit found -- report detail page not covered"
@@ -149,7 +159,8 @@ printf '%s\n' "$SMOKE_PAGES" | while IFS='|' read -r LABEL PATH_; do
          | awk '/^  HTTP\//{c=$2} END{print c}')
   CODE="${CODE:-000}"
 
-  HITS=$(grep -oE "$SMOKE_MARKERS" smoke_body.html 2>/dev/null | sort -u | tr '
+  HITS=$(grep -oE "$SMOKE_MARKERS" smoke_body.html 2>/dev/null \
+         | grep -vE "$SMOKE_IGNORE" | sort -u | tr '
 ' ' ')
 
   if [ "$CODE" != "200" ]; then
