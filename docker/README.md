@@ -301,6 +301,7 @@ slow or surprising, like a missing indexer state.
 ./scripts/logs.sh --jobs   # just job/alma/index lines -- use this to watch an audit
 ./scripts/logs.sh --errors # just errors, with their stack traces
 ./scripts/smoke.sh         # load every page the plugin adds and check it renders
+./scripts/spec.sh          # run the unit specs on the JRuby ArchivesSpace uses
 ./scripts/shell.sh         # shell inside the ArchivesSpace container
 ./scripts/shell.sh db      # MySQL client on the local database
 ./scripts/down.sh --clean  # delete local volumes (keeps ./data)
@@ -383,6 +384,25 @@ the reason is in the main README. These tests cover the MARC diffing, the
 report building and the rate limiter, and deliberately do not touch
 ArchivesSpace. For the parts that do -- controllers and views -- use
 `./scripts/smoke.sh` above.
+
+#### Running them on JRuby instead
+
+A green run on the host is not proof the code works in ArchivesSpace, because
+ArchivesSpace runs JRuby and JRuby is stricter about string encodings. The one
+that has actually bitten us: `JSON.generate` raises
+`Encoding::UndefinedConversionError` on JRuby when handed a string tagged
+`ASCII-8BIT` that contains bytes above `0x7F`, while MRI accepts it with only a
+deprecation warning. Nokogiri returns exactly such strings, so the audit report
+writer passed on the host and failed in production.
+
+```bash
+./scripts/spec.sh                            # whole suite, on JRuby
+./scripts/spec.sh spec/report_writer_spec.rb # one file
+```
+
+It starts a throwaway container, so the stack does not need to be running, and
+it takes about ten seconds. Worth running before shipping anything that touches
+encodings, file writing or JSON.
 
 ---
 

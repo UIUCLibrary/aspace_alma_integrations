@@ -1,5 +1,6 @@
 require 'spec_helper'
 require 'stringio'
+require 'tempfile'
 
 REPORT_WRITER_SPEC_TEMP_ROOT = File.expand_path(__dir__)
 
@@ -143,6 +144,75 @@ RSpec.describe AlmaIntegrations::ReportWriter do
     ensure
       file.close unless file.closed?
       file.unlink
+    end
+  end
+
+  # A real audit writes to a Tempfile, not a StringIO. StringIO holds a string
+  # and never transcodes, so it will accept ASCII-8BIT bytes that a real file
+  # rejects outright -- which is exactly how a UTF-8 bug reached production
+  # here. These cases go through a real file on disk, the same way the job
+  # runner does, so the encoding behaviour under test is the real one.
+  def report_via_file(writer, summary = { 'records' => { 'total' => 0 }, 'fields' => [] })
+    file = Tempfile.new(['report-writer-spec', '.json'], REPORT_WRITER_SPEC_TEMP_ROOT)
+
+    begin
+      # Mirrors AlmaAuditRunner#finalise.
+      file.binmode
+      writer.write(file, summary)
+      file.flush
+
+      File.read(file.path, :encoding => 'UTF-8')
+    ensure
+      file.close unless file.closed?
+      file.unlink
+    end
+  end
+
+  it 'writes records containing non-ASCII MARC data to a real file' do
+    # Every one of these is a byte above 0x7F, which is what the old code could
+    # not convert. The BOM in particular is the "\xEF" reported from the field.
+    records = [
+      { 'mms_id' => '991', 'title' => 'Sacré bleu' },
+      { 'mms_id' => '992', 'title' => '中文編目錄' },
+      { 'mms_id' => '993', 'title' => "\uFEFFNaïve café — résumé" }
+    ]
+
+    with_writer do |writer|
+      records.each { |record| writer.add_record(record) }
+      writer.add_error('mms_id' => '994', 'message' => 'Alma timeout on Übersetzung')
+
+      text = nil
+      expect { text = report_via_file(writer) }.not_to raise_error
+
+      parsed = JSON.parse(text)
+      expect(parsed['records']).to eq(records)
+      expect(parsed['errors'].first['message']).to eq('Alma timeout on Übersetzung')
+    end
+  end
+
+  it 'preserves non-ASCII characters exactly rather than mangling them' do
+    marc = '<record><datafield tag="245"><subfield code="a">Boiçano — Études</subfield></datafield></record>'
+
+    with_writer do |writer|
+      writer.add_record('mms_id' => '991', 'alma_marc' => marc)
+
+      parsed = JSON.parse(report_via_file(writer))
+
+      expect(parsed['records'].first['alma_marc']).to eq(marc)
+    end
+  end
+
+  it 'writes non-ASCII data that arrives as binary, as Nokogiri#to_xml can return' do
+    # MarcRecord#to_xml delegates to Nokogiri, which may hand back a string
+    # tagged ASCII-8BIT even though the bytes are UTF-8.
+    marc = '<record><subfield code="a">café</subfield></record>'.dup.force_encoding('ASCII-8BIT')
+
+    with_writer do |writer|
+      writer.add_record('mms_id' => '991', 'alma_marc' => marc)
+
+      parsed = JSON.parse(report_via_file(writer))
+
+      expect(parsed['records'].first['alma_marc']).to eq(marc.dup.force_encoding('UTF-8'))
     end
   end
 end

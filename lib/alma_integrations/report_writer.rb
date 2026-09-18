@@ -5,6 +5,34 @@ require 'time'
 require_relative 'version'
 
 module AlmaIntegrations
+  # Nokogiri hands back strings holding UTF-8 bytes under a binary encoding tag,
+  # and JSON refuses to serialise those: JRuby, which is what ArchivesSpace runs
+  # on, raises Encoding::UndefinedConversionError outright, while MRI only emits
+  # a deprecation warning. Re-labelling the bytes is lossless, because they are
+  # already UTF-8 -- only the label is wrong.
+  #
+  # Bytes that are genuinely not UTF-8 are deliberately left as they are. That
+  # is a real data problem, and in an audit whose whole purpose is to report
+  # what differs between two records, quietly rewriting bytes would be worse
+  # than surfacing the record as an error.
+  module Utf8
+    def self.tag(value)
+      case value
+      when String
+        return value if value.encoding == Encoding::UTF_8 || value.ascii_only?
+
+        relabelled = value.dup.force_encoding(Encoding::UTF_8)
+        relabelled.valid_encoding? ? relabelled : value
+      when Hash
+        value.each_with_object({}) { |(key, entry), out| out[tag(key)] = tag(entry) }
+      when Array
+        value.map { |entry| tag(entry) }
+      else
+        value
+      end
+    end
+  end
+
   # Writes the audit report to disk without ever holding the whole thing in
   # memory. An audit may cover many thousands of records and each record may
   # carry a full MARC snapshot, so records are spooled to a temporary file as
@@ -35,7 +63,7 @@ module AlmaIntegrations
     def add_record(record)
       raise Error, 'Report has already been finished' if @closed
 
-      @records.puts(JSON.generate(record))
+      @records.puts(JSON.generate(Utf8.tag(record)))
       @record_count += 1
       nil
     end
@@ -43,7 +71,7 @@ module AlmaIntegrations
     def add_error(error)
       raise Error, 'Report has already been finished' if @closed
 
-      @errors.puts(JSON.generate(error))
+      @errors.puts(JSON.generate(Utf8.tag(error)))
       @error_count += 1
       nil
     end
@@ -109,7 +137,7 @@ module AlmaIntegrations
     def write_pair(io, key, value)
       io.write(JSON.generate(key.to_s))
       io.write(': ')
-      io.write(JSON.generate(value))
+      io.write(JSON.generate(Utf8.tag(value)))
     end
 
     # Replays a spool file into the document as a JSON array. Lines are streamed
@@ -120,6 +148,14 @@ module AlmaIntegrations
       io.write(": [")
 
       spool.rewind
+      # The spool is opened in binary mode so that appending never transcodes,
+      # which means it reads back as ASCII-8BIT. JSON.generate only ever emits
+      # UTF-8, so those bytes are UTF-8; they are just no longer labelled as
+      # such. Writing them to a UTF-8 destination would make Ruby try to convert
+      # ASCII-8BIT to UTF-8 and fail on the first byte above 0x7F -- any accented
+      # character in a MARC record. Re-declare the encoding before replaying so
+      # the bytes are passed through as what they already are.
+      spool.set_encoding(ENCODING) if spool.respond_to?(:set_encoding)
       first = true
       spool.each_line do |line|
         line = line.strip
@@ -148,7 +184,7 @@ module AlmaIntegrations
     attr_reader :count
 
     def add(entry)
-      @file.puts(JSON.generate(entry))
+      @file.puts(JSON.generate(Utf8.tag(entry)))
       @count += 1
       nil
     end
