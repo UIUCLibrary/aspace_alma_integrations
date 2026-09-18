@@ -4,7 +4,13 @@
   job itself so this renders immediately without parsing a document that may be
   tens of megabytes.
 %>
-<% summary = (job.job['summary'] rescue nil) || {} %>
+<%# ArchivesSpace passes the *inner* job hash to this partial, not the Job
+    record: jobs/_show_templates.html.erb does
+    `form.emit_template job.job['jsonmodel_type'], job.job`. So the summary is
+    at job['summary'], and the job's own id is only on @job. Reaching for
+    job.job here silently yields nothing and the page claims the run produced
+    no report. %>
+<% summary = job['summary'] || {} %>
 <% records = summary['records'] || {} %>
 
 <div class="alma-audit-show">
@@ -29,7 +35,7 @@
 
     <p>
       <%= link_to t('alma_audit_job.view_report'),
-                  url_for(:controller => :alma_audit_reports, :action => :show, :id => job.id),
+                  url_for(:controller => :alma_audit_reports, :action => :show, :id => @job.id),
                   :class => "btn btn-primary" %>
     </p>
   <% end %>

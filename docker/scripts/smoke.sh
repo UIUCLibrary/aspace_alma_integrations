@@ -48,6 +48,7 @@ audit report list|/plugins/alma_audit_reports
 alma integrations|/plugins/alma_integrations
 audit job form|/jobs/new?job_type=alma_audit_job
 bulk update job form|/jobs/new?job_type=alma_bulk_update_job
+mms assign job form|/jobs/new?job_type=alma_mms_assign_job
 job list|/jobs
 "
 
@@ -140,6 +141,23 @@ AUDIT_ID=$(wget -q -O - --load-cookies smoke_cookies.txt \
              http://localhost:8080/plugins/alma_audit_reports 2>/dev/null \
            | grep -oE '/plugins/alma_audit_reports/[0-9][0-9]*' \
            | sed 's|.*/||' | sort -n | tail -1)
+
+# A job's detail page is where this plugin's _show partials render, and they
+# only have anything to show once a run has finished, so pick up whichever job
+# the stack has. The audit block below covers the audit job specifically; this
+# catches the others.
+JOB_ID=$(wget -q -O - --load-cookies smoke_cookies.txt \
+           "http://localhost:8080/jobs" 2>/dev/null \
+         | grep -oE 'jobs/[0-9]+' \
+         | sed 's|.*/||' | sort -n | tail -1)
+
+if [ -n "${JOB_ID:-}" ]; then
+  SMOKE_PAGES="${SMOKE_PAGES}
+job detail|/jobs/${JOB_ID}"
+  echo "OK|found job ${JOB_ID}, checking its detail page too"
+else
+  echo "OK|no job has been run -- job detail page not covered"
+fi
 
 # The bib comparison needs a resource to compare, and the diff=1 variant is the
 # page every "which records?" link in a report points at, so check both states

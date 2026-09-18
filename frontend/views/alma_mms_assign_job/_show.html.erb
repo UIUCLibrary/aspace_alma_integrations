@@ -4,7 +4,13 @@
   ArchivesSpace lists under the job's files. Only the headline numbers live on
   the job itself, so this renders without reading the document.
 %>
-<% summary = (job.job['summary'] rescue nil) || {} %>
+<%# ArchivesSpace passes the *inner* job hash to this partial, not the Job
+    record: jobs/_show_templates.html.erb does
+    `form.emit_template job.job['jsonmodel_type'], job.job`. So the summary is
+    at job['summary'], and the job's own id is only on @job. Reaching for
+    job.job here silently yields nothing and the page claims the run produced
+    no report. %>
+<% summary = job['summary'] || {} %>
 <% rows = summary['rows'] || {} %>
 
 <div class="alma-audit-show">

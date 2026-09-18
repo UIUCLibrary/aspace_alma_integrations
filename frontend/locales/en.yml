@@ -100,14 +100,29 @@ en:
     not_finished: This job has not produced a report yet. Check the job log for progress.
     summary_heading: Assignment summary
     stat_dry_run: This was a dry run. Nothing was written.
-    stat_would_assign: "%{count} would be given an MMS ID"
-    stat_would_replace: "%{count} would have an existing MMS ID replaced"
-    stat_assigned: "%{count} were given an MMS ID"
-    stat_replaced: "%{count} had an existing MMS ID replaced"
-    stat_unchanged: "%{count} already had the same MMS ID"
-    stat_conflict: "%{count} already had a different MMS ID and were left alone"
-    stat_errored: "%{count} rows could not be applied"
+    stat_would_assign:
+      one: "%{count} collection would be given an MMS ID"
+      other: "%{count} collections would be given an MMS ID"
+    stat_would_replace:
+      one: "%{count} collection would have an existing MMS ID replaced"
+      other: "%{count} collections would have an existing MMS ID replaced"
+    stat_assigned:
+      one: "%{count} collection was given an MMS ID"
+      other: "%{count} collections were given an MMS ID"
+    stat_replaced:
+      one: "%{count} collection had an existing MMS ID replaced"
+      other: "%{count} collections had an existing MMS ID replaced"
+    stat_unchanged:
+      one: "%{count} collection already had the same MMS ID"
+      other: "%{count} collections already had the same MMS ID"
+    stat_conflict:
+      one: "%{count} collection already had a different MMS ID and was left alone"
+      other: "%{count} collections already had a different MMS ID and were left alone"
+    stat_errored:
+      one: "%{count} row could not be applied"
+      other: "%{count} rows could not be applied"
     field_note: "MMS IDs are read from and written to user_defined.%{field}."
+    format: Report file format
     summary: Assignment summary
 
   alma_audit_reports:
