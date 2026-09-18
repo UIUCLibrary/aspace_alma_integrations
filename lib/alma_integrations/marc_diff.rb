@@ -76,7 +76,178 @@ module AlmaIntegrations
       }
     end
 
+    # Pairs up the individual field instances of the two records so they can be
+    # shown one opposite the other. #diff answers "what would change"; #align
+    # answers "which line sits opposite which line". Both run the same matching,
+    # so the highlighted view and the report can never disagree.
+    #
+    # Rows come back ordered by tag, and within a tag: the instances that
+    # survive unchanged, then those that are edited, then those that are lost,
+    # then those that are added. Enrichment fields that #diff quietly sets aside
+    # are still returned, marked as ignored, so the rendered record is the whole
+    # record rather than a silently abridged one.
+    def align(alma_source, outgoing_source)
+      alma = MarcRecord.parse(alma_source)
+      outgoing = MarcRecord.parse(outgoing_source)
+
+      rows = []
+
+      leader_row = align_leader(alma.leader, outgoing.leader)
+      rows << leader_row if leader_row
+
+      alma_by_tag = group_by_tag(alma.fields)
+      outgoing_by_tag = group_by_tag(select_comparable(outgoing.fields))
+
+      (alma_by_tag.keys | outgoing_by_tag.keys).sort.each do |tag|
+        comparable, enrichment = partition_enrichment(alma_by_tag[tag] || [])
+
+        enrichment.each { |field| rows << enrichment_row(tag, field) }
+        rows.concat(align_tag(tag, comparable, outgoing_by_tag[tag] || []))
+      end
+
+      {
+        'rows' => rows,
+        'counts' => rows.each_with_object(Hash.new(0)) { |row, out| out[row['status']] += 1 }
+      }
+    end
+
     private
+
+    def select_comparable(fields)
+      comparable, = partition_enrichment(fields)
+      comparable
+    end
+
+    def align_leader(alma_leader, outgoing_leader)
+      return nil if alma_leader.nil? && outgoing_leader.nil?
+
+      tag = MarcLabels::LEADER
+      alma = alma_leader.nil? ? nil : { 'tag' => tag, 'value' => alma_leader, 'display' => "#{tag}  #{alma_leader}" }
+      outgoing = outgoing_leader.nil? ? nil : { 'tag' => tag, 'value' => outgoing_leader, 'display' => "#{tag}  #{outgoing_leader}" }
+
+      return row(tag, 'added', :outgoing => outgoing) if alma.nil?
+      return row(tag, 'lost', :alma => alma) if outgoing.nil?
+
+      positions = diff_positions(tag, alma_leader, outgoing_leader)
+      status = positions.empty? ? 'unchanged' : 'changed'
+
+      row(tag, status, :alma => alma, :outgoing => outgoing, :positions => positions)
+    end
+
+    def align_tag(tag, alma_fields, outgoing_fields)
+      if control_tag?(alma_fields, outgoing_fields)
+        align_control_tag(tag, alma_fields, outgoing_fields)
+      else
+        align_data_tag(tag, alma_fields, outgoing_fields)
+      end
+    end
+
+    def align_control_tag(tag, alma_fields, outgoing_fields)
+      pairs = [alma_fields.length, outgoing_fields.length].min
+      rows = []
+
+      (0...pairs).each do |index|
+        alma_field = alma_fields[index]
+        outgoing_field = outgoing_fields[index]
+        positions = diff_positions(tag, alma_field.value, outgoing_field.value)
+
+        rows << row(tag, positions.empty? ? 'unchanged' : 'changed',
+                    :alma => alma_field.to_h,
+                    :outgoing => outgoing_field.to_h,
+                    :positions => positions)
+      end
+
+      alma_fields[pairs..-1].to_a.each { |field| rows << row(tag, 'lost', :alma => field.to_h) }
+      outgoing_fields[pairs..-1].to_a.each { |field| rows << row(tag, 'added', :outgoing => field.to_h) }
+
+      rows
+    end
+
+    def align_data_tag(tag, alma_fields, outgoing_fields)
+      identical, alma_left, outgoing_left = match_identical(alma_fields, outgoing_fields)
+      edited, alma_left, outgoing_left = match_similar(alma_left, outgoing_left)
+
+      rows = identical.map do |alma_field, outgoing_field|
+        row(tag, 'unchanged',
+            :alma => alma_field.to_h,
+            :outgoing => outgoing_field.to_h,
+            :alma_parts => plain_parts(alma_field),
+            :outgoing_parts => plain_parts(outgoing_field))
+      end
+
+      rows.concat(edited.map { |alma_field, outgoing_field| align_edited(tag, alma_field, outgoing_field) })
+
+      alma_left.each do |field|
+        rows << row(tag, 'lost', :alma => field.to_h, :alma_parts => plain_parts(field, 'lost'))
+      end
+
+      outgoing_left.each do |field|
+        rows << row(tag, 'added', :outgoing => field.to_h, :outgoing_parts => plain_parts(field, 'added'))
+      end
+
+      rows
+    end
+
+    # An edited instance is reported subfield by subfield, with each side's
+    # subfields already labelled, so the view has nothing left to work out. A
+    # changed subfield carries its counterpart's value so the view can highlight
+    # the differing words within it.
+    def align_edited(tag, alma_field, outgoing_field)
+      pairing = pair_subfields(alma_field, outgoing_field)
+
+      alma_parts = plain_parts(alma_field, 'unchanged')
+      outgoing_parts = plain_parts(outgoing_field, 'unchanged')
+
+      pairing['changed'].each do |a_index, b_index|
+        alma_parts[a_index]['status'] = 'changed'
+        alma_parts[a_index]['counterpart'] = outgoing_field.subfields[b_index].last
+        outgoing_parts[b_index]['status'] = 'changed'
+        outgoing_parts[b_index]['counterpart'] = alma_field.subfields[a_index].last
+      end
+
+      pairing['lost'].each { |a_index| alma_parts[a_index]['status'] = 'lost' }
+      pairing['added'].each { |b_index| outgoing_parts[b_index]['status'] = 'added' }
+
+      row(tag, 'changed',
+          :alma => alma_field.to_h,
+          :outgoing => outgoing_field.to_h,
+          :alma_parts => alma_parts,
+          :outgoing_parts => outgoing_parts,
+          :indicators_changed => alma_field.indicators != outgoing_field.indicators,
+          :subfields => diff_subfields(alma_field, outgoing_field))
+    end
+
+    def plain_parts(field, status = 'unchanged')
+      return [] if field.control?
+
+      field.subfields.map do |code, value|
+        { 'code' => code.to_s, 'value' => value, 'status' => status }
+      end
+    end
+
+    # Alma's generated 035s are not part of the record a cataloguer maintains,
+    # so they are shown but never flagged.
+    def enrichment_row(tag, field)
+      row(tag, 'ignored', :alma => field.to_h, :alma_parts => plain_parts(field, 'ignored'), :enrichment => true)
+    end
+
+    def row(tag, status, attributes = {})
+      {
+        'tag' => tag,
+        'label' => MarcLabels.tag_label(tag),
+        'status' => status,
+        'ignored' => @ignored_tags.include?(tag),
+        'preserved' => @preserved_tags.include?(tag),
+        'enrichment' => false,
+        'alma' => nil,
+        'outgoing' => nil,
+        'alma_parts' => [],
+        'outgoing_parts' => [],
+        'positions' => [],
+        'indicators_changed' => false,
+        'subfields' => nil
+      }.merge(attributes.each_with_object({}) { |(key, value), out| out[key.to_s] = value })
+    end
 
     # Alma's multi-record GET adds 035 fields carrying the Network Zone and
     # Community Zone identifiers. They are generated at retrieval time rather
@@ -170,7 +341,7 @@ module AlmaIntegrations
     end
 
     def diff_data_tag(tag, alma_fields, outgoing_fields)
-      unchanged, alma_left, outgoing_left = match_identical(alma_fields, outgoing_fields)
+      identical, alma_left, outgoing_left = match_identical(alma_fields, outgoing_fields)
       modified_pairs, alma_left, outgoing_left = match_similar(alma_left, outgoing_left)
 
       modified = modified_pairs.map do |alma_field, outgoing_field|
@@ -184,14 +355,16 @@ module AlmaIntegrations
       build_entry(tag,
                   alma_fields.length,
                   outgoing_fields.length,
-                  unchanged,
+                  identical.length,
                   alma_left.map(&:to_h),
                   outgoing_left.map(&:to_h),
                   modified)
     end
 
     # Step one: take out every field that survives byte-for-byte (after
-    # normalisation), treating repeats as a multiset.
+    # normalisation), treating repeats as a multiset. Returns the surviving
+    # pairs rather than a bare count, because the side-by-side view needs to
+    # know which Alma instance sits opposite which outgoing instance.
     def match_identical(alma_fields, outgoing_fields)
       available = {}
       outgoing_fields.each_with_index do |field, index|
@@ -199,8 +372,8 @@ module AlmaIntegrations
       end
 
       matched_outgoing = {}
+      matched = []
       alma_left = []
-      unchanged = 0
 
       alma_fields.each do |field|
         key = field_key(field)
@@ -210,13 +383,13 @@ module AlmaIntegrations
           alma_left << field
         else
           matched_outgoing[index] = true
-          unchanged += 1
+          matched << [field, outgoing_fields[index]]
         end
       end
 
       outgoing_left = outgoing_fields.each_with_index.reject { |_, index| matched_outgoing[index] }.map(&:first)
 
-      [unchanged, alma_left, outgoing_left]
+      [matched, alma_left, outgoing_left]
     end
 
     # Step two: of what is left, pair up the instances that are recognisably the
@@ -276,7 +449,14 @@ module AlmaIntegrations
       score
     end
 
-    def diff_subfields(alma_field, outgoing_field)
+    # Pairs the subfields of two instances of the same field. Both the report
+    # (#diff_subfields) and the side-by-side view (#align) are built from this
+    # one pairing, so the two presentations can never disagree about which
+    # subfield changed into which.
+    #
+    # Returned in index terms, so callers can reach back to the original
+    # subfield values rather than the normalised ones used for matching.
+    def pair_subfields(alma_field, outgoing_field)
       alma_parts = normalized_subfields(alma_field)
       outgoing_parts = normalized_subfields(outgoing_field)
 
@@ -284,6 +464,7 @@ module AlmaIntegrations
       outgoing_parts.each_with_index { |part, index| (available[part] ||= []) << index }
 
       matched_outgoing = {}
+      unchanged = []
       alma_left = []
 
       alma_parts.each_with_index do |part, index|
@@ -292,40 +473,50 @@ module AlmaIntegrations
           alma_left << index
         else
           matched_outgoing[match] = true
+          unchanged << [index, match]
         end
       end
 
       outgoing_left = (0...outgoing_parts.length).reject { |index| matched_outgoing[index] }
 
-      changed = []
-      lost = []
-      added = []
-
       # Within a field, a leftover on each side sharing a subfield code is a
       # changed value; anything still unpaired is a genuine loss or addition.
       outgoing_by_code = outgoing_left.group_by { |index| outgoing_parts[index].first }
+
+      changed = []
+      lost = []
 
       alma_left.each do |a_index|
         code = alma_parts[a_index].first
         b_index = outgoing_by_code[code] && outgoing_by_code[code].shift
 
         if b_index.nil?
-          lost << subfield_hash(alma_field, a_index)
+          lost << a_index
         else
-          changed << {
-            'code' => code,
-            'alma' => alma_field.subfields[a_index].last,
-            'outgoing' => outgoing_field.subfields[b_index].last
-          }
+          changed << [a_index, b_index]
         end
       end
 
-      outgoing_by_code.each_value do |indexes|
-        indexes.each { |b_index| added << subfield_hash(outgoing_field, b_index) }
+      added = outgoing_by_code.values.flatten.sort
+
+      { 'unchanged' => unchanged, 'changed' => changed, 'lost' => lost, 'added' => added }
+    end
+
+    def diff_subfields(alma_field, outgoing_field)
+      pairing = pair_subfields(alma_field, outgoing_field)
+
+      changed = pairing['changed'].map do |a_index, b_index|
+        {
+          'code' => alma_field.subfields[a_index].first.to_s,
+          'alma' => alma_field.subfields[a_index].last,
+          'outgoing' => outgoing_field.subfields[b_index].last
+        }
       end
 
+      added = pairing['added'].map { |b_index| subfield_hash(outgoing_field, b_index) }
+
       {
-        'lost' => lost,
+        'lost' => pairing['lost'].map { |a_index| subfield_hash(alma_field, a_index) },
         'added' => added.sort_by { |sub| sub['code'].to_s },
         'changed' => changed,
         'indicators_changed' => alma_field.indicators != outgoing_field.indicators,

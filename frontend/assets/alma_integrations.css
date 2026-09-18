@@ -29,3 +29,171 @@
 .search-error {
   color: #721c24;
 }
+
+/* ---- Side-by-side MARC comparison ------------------------------------- */
+
+/* Both views are rendered; the toggle decides which one is on screen. */
+.alma-marc-compare .alma-marc-diff {
+  display: none;
+}
+
+.alma-marc-compare.alma-diff-on .alma-marc-plain {
+  display: none;
+}
+
+.alma-marc-compare.alma-diff-on .alma-marc-diff {
+  display: block;
+}
+
+.alma-diff-controls {
+  margin: 0 0 10px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.alma-diff-filter {
+  font-weight: normal;
+  margin: 0;
+}
+
+/* The "differences only" filter is meaningless until the differences are
+   showing, so it stays out of the way until then. */
+.alma-marc-compare:not(.alma-diff-on) .alma-diff-filter,
+.alma-marc-compare:not(.alma-diff-on) .alma-diff-summary {
+  display: none;
+}
+
+.alma-diff-summary .alma-diff-key {
+  display: inline-block;
+  padding: 1px 6px;
+  margin-right: 4px;
+  border-radius: 3px;
+  font-size: 12px;
+}
+
+/* A CSS grid keeps a field level with its counterpart even when one side wraps
+   onto several lines. */
+.alma-diff-grid {
+  border: 1px solid #ddd;
+  border-radius: 3px;
+  overflow-x: auto;
+}
+
+.alma-diff-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.alma-diff-pair:last-child {
+  border-bottom: 0;
+}
+
+.alma-diff-cell {
+  padding: 2px 8px;
+  min-width: 0;
+  border-left: 1px solid #f0f0f0;
+}
+
+.alma-diff-cell:first-child {
+  border-left: 0;
+}
+
+.alma-diff-headings .alma-diff-cell {
+  background-color: #f5f5f5;
+  border-bottom: 1px solid #ddd;
+}
+
+.alma-diff-headings h4 {
+  margin: 6px 0;
+}
+
+.alma-diff-row {
+  font-family: Menlo, Monaco, Consolas, "Courier New", monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  padding: 2px 4px;
+  border-radius: 2px;
+}
+
+.alma-diff-tag {
+  font-weight: bold;
+  margin-right: 6px;
+}
+
+.alma-diff-indicators {
+  color: #777;
+  margin-right: 6px;
+}
+
+.alma-diff-code {
+  color: #777;
+}
+
+/* Colours carry a border as well as a fill, and every state also has a text
+   label in the summary, so the view does not depend on colour alone. */
+.alma-diff-lost {
+  background-color: #fdecea;
+  border-left: 3px solid #c0392b;
+}
+
+.alma-diff-added {
+  background-color: #eafaf1;
+  border-left: 3px solid #1e8449;
+}
+
+.alma-diff-changed {
+  background-color: #fef5e7;
+  border-left: 3px solid #b9770e;
+}
+
+.alma-diff-ignored {
+  background-color: #f7f7f7;
+  border-left: 3px solid #bbb;
+  color: #777;
+}
+
+.alma-diff-same {
+  border-left: 3px solid transparent;
+}
+
+.alma-diff-absent {
+  border-left: 3px solid transparent;
+  min-height: 1em;
+}
+
+.alma-diff-subfield.alma-diff-lost,
+.alma-diff-subfield.alma-diff-added,
+.alma-diff-subfield.alma-diff-changed {
+  border-left: 0;
+  padding: 0 2px;
+  border-radius: 2px;
+}
+
+.alma-diff-subfield.alma-diff-same {
+  border-left: 0;
+}
+
+mark.alma-diff-word {
+  background-color: #ffe082;
+  padding: 0 1px;
+}
+
+.alma-diff-pair-ignored .alma-diff-row {
+  opacity: 0.75;
+}
+
+/* "Differences only" hides the fields that survive untouched. */
+.alma-diff-only .alma-diff-pair-unchanged {
+  display: none;
+}
+
+.alma-diff-footnote {
+  margin-top: 8px;
+}

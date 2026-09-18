@@ -5,3 +5,7 @@
 require_relative '../lib/alma_integrations'
 
 ArchivesSpace::Application.extend_aspace_routes(File.join(File.dirname(__FILE__), "routes.rb"))
+
+# ArchivesSpace only autoloads a plugin's frontend/controllers and
+# frontend/models, so the view helpers are registered by hand.
+ApplicationController.helper(AlmaMarcDiffHelper)

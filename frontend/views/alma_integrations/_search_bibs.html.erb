@@ -34,35 +34,16 @@
       <%= I18n.t("plugins.alma_integrations.marc_headings.aspace_note_config") %>
     </p>
     <div class="row">
-      <div class="col-md-6">
-        <h4><%= I18n.t("plugins.alma_integrations.marc_headings.aspace") %></h4>
-
-        <div class="subrecord-form-fields notes-readonly" aria-describedby="aspace-marc-note">
-          <div class="tabbable">
-            <div class="tab-content">
-              <% if results['aspace_marc'] %>
-                <pre class="pre-scrollable"><code><%= results['aspace_marc'] %></code></pre>
-              <% else %>
-                <p><%= I18n.t("plugins.alma_integrations.errors.no_marc") %></p>
-              <% end %>
-            </div>
-          </div>
-        </div>
-        <%= render partial: "add_bibs_form", locals: { results: results } %>
-      </div>
-      <div class="col-md-6">
-        <h4><%= I18n.t("plugins.alma_integrations.marc_headings.alma") %></h4>
-        <div class="subrecord-form-fields notes-readonly">
-          <div class="tabbable">
-            <div class="tab-content">
-              <% if results['alma_marc'] %>
-                <pre class="pre-scrollable"><code><%= results['alma_marc'] %></code></pre>
-              <% else %>
-                <p><%= results['alma']['error'] %></p>
-              <% end %>
-            </div>
-          </div>
-        </div>
+      <div class="col-md-12">
+        <%= render :partial => 'marc_panes',
+                   :locals => {
+                     :aspace_marc => results['aspace_marc'],
+                     :alma_marc => results['alma_marc'],
+                     :alma_error => results['alma']['error'],
+                     :show_diff => @show_diff,
+                     :aspace_footer_partial => 'add_bibs_form',
+                     :aspace_footer_locals => { :results => results }
+                   } %>
       </div>
     </div>
   </div>
