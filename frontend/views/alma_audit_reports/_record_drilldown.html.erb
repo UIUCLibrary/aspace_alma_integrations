@@ -32,12 +32,12 @@
 
     <ul class="alma-report-record-list">
       <% sampled.each do |record| %>
-        <% label = record['label'].presence || record['mms_id'].presence || record['uri'] %>
+        <% label = record['label'].presence || record['mms_id'].presence || record['resource_uri'] %>
         <li>
-          <% if record['uri'].present? %>
+          <% if record['resource_uri'].present? %>
             <%= link_to label,
                         url_for(:controller => :alma_integrations, :action => :search,
-                                :ref => record['uri'], :record_type => 'bibs', :diff => 1),
+                                :ref => record['resource_uri'], :record_type => 'bibs', :diff => 1),
                         :title => record['title'] %>
           <% else %>
             <%= label %>

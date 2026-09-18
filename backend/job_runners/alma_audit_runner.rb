@@ -235,10 +235,13 @@ class AlmaAuditRunner < JobRunner
   def summary_identity(resolution)
     label = resolution.ead_id || resolution.identifier || resolution.mms_id || resolution.input
 
+    # Deliberately not called 'uri'. ArchivesSpace walks a job's blob looking
+    # for record references, and a bare 'uri' key makes it try to turn the
+    # enclosing object into a record id, which throws on the job list page.
     {
       'label' => label.to_s,
       'title' => resolution.title.to_s[0, 120],
-      'uri' => resolution.uri,
+      'resource_uri' => resolution.uri,
       'mms_id' => resolution.mms_id
     }
   end

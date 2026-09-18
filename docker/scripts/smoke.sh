@@ -141,6 +141,23 @@ AUDIT_ID=$(wget -q -O - --load-cookies smoke_cookies.txt \
            | grep -oE '/plugins/alma_audit_reports/[0-9][0-9]*' \
            | sed 's|.*/||' | sort -n | tail -1)
 
+# The bib comparison needs a resource to compare, and the diff=1 variant is the
+# page every "which records?" link in a report points at, so check both states
+# of it against whichever resource the stack happens to have.
+RES=$(wget -q -O - --load-cookies smoke_cookies.txt \
+        "http://localhost:8080/resources" 2>/dev/null \
+      | grep -oE '/repositories/[0-9]+/resources/[0-9]+' | sort -u | head -1)
+
+if [ -n "${RES:-}" ]; then
+  ESCAPED=$(printf '%s' "$RES" | sed 's|/|%2F|g')
+  SMOKE_PAGES="${SMOKE_PAGES}
+bib comparison|/plugins/alma_integrations/search?ref=${ESCAPED}&record_type=bibs
+bib comparison (diff)|/plugins/alma_integrations/search?ref=${ESCAPED}&record_type=bibs&diff=1"
+  echo "OK|found resource ${RES}, checking the bib comparison too"
+else
+  echo "OK|no resource exists -- bib comparison not covered"
+fi
+
 if [ -n "${AUDIT_ID:-}" ]; then
   SMOKE_PAGES="${SMOKE_PAGES}
 audit report detail|/plugins/alma_audit_reports/${AUDIT_ID}

@@ -25,66 +25,22 @@
 # Like the rest of this plugin, it is mounted only by the local docker-compose
 # stack and must never reach a production ArchivesSpace.
 
-if !ENV['ALMA_STUB_DIR'].to_s.empty?
+require_relative '../alma_fixtures'
 
-  STUB_DIR = ENV['ALMA_STUB_DIR'].to_s
+if AlmaFixtures.enabled?
 
-  $stderr.puts("alma_dev_errors: Alma API responses are STUBBED from #{STUB_DIR}. " \
+  $stderr.puts("alma_dev_errors: Alma API responses are STUBBED from #{AlmaFixtures.dir}. " \
                'Local development only.')
 
   module AlmaStubResponses
-
-    def self.record_for(mms_id)
-      candidate = File.join(STUB_DIR, "#{mms_id}.xml")
-      candidate = File.join(STUB_DIR, 'default.xml') unless File.file?(candidate)
-
-      return nil unless File.file?(candidate)
-
-      File.read(candidate, :encoding => 'UTF-8')
-    end
-
+    # is_a?(Net::HTTPSuccess) is what the plugin tests, so this has to be a real
+    # response object rather than something that merely looks like one.
     def self.ok(body)
-      # is_a?(Net::HTTPSuccess) is what the plugin tests, so this has to be a
-      # real response object rather than something that merely looks like one.
       response = Net::HTTPOK.new('1.1', '200', 'OK')
       response.instance_variable_set(:@body, body)
       response.instance_variable_set(:@read, true)
       response.add_field('Content-Type', 'application/xml;charset=UTF-8')
       response
-    end
-
-    def self.not_found(mms_id)
-      ok(<<~XML)
-        <bibs total_record_count="0">
-          <errorsExist>true</errorsExist>
-          <errorList>
-            <error>
-              <errorCode>402203</errorCode>
-              <errorMessage>Input parameters mmsId #{mms_id} is not valid.</errorMessage>
-            </error>
-          </errorList>
-        </bibs>
-      XML
-    end
-
-    # Wraps one or more fixtures in the <bibs> envelope Alma returns. The
-    # mms_id element matters: the multi-record fetch keys off it.
-    def self.bibs(mms_ids)
-      found = mms_ids.map { |mms_id| [mms_id, record_for(mms_id)] }.reject { |_, record| record.nil? }
-
-      return not_found(mms_ids.join(',')) if found.empty?
-
-      body = found.map do |mms_id, record|
-        <<~XML
-          <bib>
-            <mms_id>#{mms_id}</mms_id>
-            <record_format>marc21</record_format>
-            #{record.sub(/\A<\?xml[^>]*\?>\s*/, '')}
-          </bib>
-        XML
-      end
-
-      ok(%(<bibs total_record_count="#{found.length}">\n#{body.join}\n</bibs>))
     end
   end
 
@@ -100,21 +56,13 @@ if !ENV['ALMA_STUB_DIR'].to_s.empty?
         return get_without_alma_stub(uri, opts) if base.empty? || !uri.to_s.start_with?(base)
 
         rest = uri.to_s[base.length..-1].to_s.split('?').first.to_s.sub(%r{\A/}, '')
-        query = Rack::Utils.parse_nested_query(uri.query.to_s)
+        return AlmaStubResponses.ok('<holdings total_record_count="0"/>') if rest.end_with?('holdings')
 
-        if rest.end_with?('holdings')
-          return AlmaStubResponses.ok('<holdings total_record_count="0"/>')
-        end
+        query = URI.decode_www_form(uri.query.to_s).to_h
+        ids = rest.empty? ? query['mms_id'].to_s.split(',') : [rest]
 
-        ids = if rest.empty?
-                query['mms_id'].to_s.split(',')
-              else
-                [rest]
-              end
-
-        return AlmaStubResponses.not_found('(none)') if ids.empty?
-
-        AlmaStubResponses.bibs(ids)
+        xml, = AlmaFixtures.bibs_xml(ids)
+        AlmaStubResponses.ok(xml)
       end
     end
   end
