@@ -36,11 +36,10 @@ if [[ ${#DUMPS[@]} -eq 0 ]]; then
   warn "no dump found. ArchivesSpace will start empty, with admin/admin."
   echo "       Expected: data/db-dump/01-archivesspace.sql.gz"
 elif [[ ${#DUMPS[@]} -gt 1 ]]; then
-  # MySQL's entrypoint runs everything in this directory in filename order, so
-  # two dumps means the second one is applied on top of the first and the
-  # result is not what anyone intended.
-  problem "more than one dump in data/db-dump. MySQL applies them all, in"
-  echo "       filename order, one on top of the other. Keep exactly one:"
+  # load-db.sh loads the first match and ignores the rest, so a stale dump
+  # sorting ahead of the new one silently gets loaded instead of it.
+  problem "more than one dump in data/db-dump. Only the first is loaded and"
+  echo "       the rest are ignored. Keep exactly one:"
   for d in "${DUMPS[@]}"; do echo "         ${d}"; done
 else
   DUMP="${DUMPS[0]}"

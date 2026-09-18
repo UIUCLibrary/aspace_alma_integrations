@@ -18,18 +18,46 @@ services:
 
   db:
     image: mysql:${MYSQL_VERSION:-8.0}
-    platform: ${ASPACE_PLATFORM:-linux/amd64}
+    # Deliberately NOT pinned to amd64 like the other two services. MySQL
+    # publishes linux/arm64v8 as well as linux/amd64, so on Apple Silicon this
+    # runs natively while ArchivesSpace and Solr (amd64-only) are emulated.
+    # Emulating the database too made restoring a dump several times slower for
+    # no benefit -- importing is exactly the CPU- and IO-heavy work that
+    # emulation punishes most. Empty means "let Docker pick"; see .env.example.
+    platform: ${DB_PLATFORM:-}
     command:
       # ArchivesSpace requires utf8mb4 end to end; getting this wrong shows up
       # much later as mangled diacritics in MARC output, which is exactly the
       # sort of thing this plugin's audit would then report as a difference.
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_unicode_ci
-      # ArchivesSpace creates triggers during migration. Without this, a
-      # restore or migration fails on a stock MySQL 8 with binary logging.
+      # ArchivesSpace creates triggers during migration. With binary logging
+      # off (below) this restriction does not apply at all, but leaving it set
+      # keeps things working for anyone who turns binary logging back on.
       - --log-bin-trust-function-creators=1
       # A dump of a real repository restores far faster with a larger buffer.
       - --innodb-buffer-pool-size=1G
+      # --- import speed -----------------------------------------------------
+      # This database is a disposable local mirror: it is rebuilt from
+      # data/db-dump by `up.sh --fresh`, and nothing here is the system of
+      # record. That makes crash durability worth trading for import speed,
+      # which is the slowest step of a first start.
+      #
+      # Measured on a 173MB dump, restore to accepting connections:
+      #   stock settings ............... 31s
+      #   durability relaxed only ...... 18s
+      #   binary logging off only ...... 16s
+      #   both (what we do here) ....... 14s
+      #
+      # Binary logging is the single biggest cost, and it is pure waste here:
+      # there is no replica and no point-in-time recovery to support.
+      - --skip-log-bin
+      # Let InnoDB flush once a second rather than fsyncing every transaction,
+      # and skip the doublewrite buffer. A crash mid-import can corrupt the
+      # database -- the recovery for which is `up.sh --fresh`, which is what
+      # you would do anyway.
+      - --innodb-flush-log-at-trx-commit=0
+      - --innodb-doublewrite=0
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root123}
       MYSQL_DATABASE: ${MYSQL_DATABASE:-archivesspace}
@@ -39,10 +67,13 @@ services:
       - "${MYSQL_PORT:-3306}:3306"
     volumes:
       - db-data:/var/lib/mysql
-      # Anything in here is applied on FIRST START of an empty database, in
-      # filename order. You put the dump here by hand, so a clean
-      # `up.sh --fresh` restores the mirror automatically.
-      - ./data/db-dump:/docker-entrypoint-initdb.d:ro
+      # Mounted as plain data, NOT at /docker-entrypoint-initdb.d. The
+      # entrypoint applies that directory before the server accepts network
+      # connections, which makes a large import an opaque black box: no
+      # progress, no usable error, and no way to retry without destroying the
+      # volume. scripts/load-db.sh loads it explicitly instead, once the
+      # server is up, so the load can be watched, checked and re-run.
+      - ./data/db-dump:/dump:ro
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-root123}"]
       interval: 10s

@@ -140,27 +140,35 @@ docker compose up -d db solr
 # bypasses the depends_on health gate. So nothing here waits for MySQL unless
 # we do it explicitly.
 #
-# That matters most in exactly the case this script exists for. MySQL applies
-# data/db-dump on first start, and while it does so the entrypoint runs a
-# temporary server that listens on a unix socket only -- no TCP. A multi-GB
-# ArchivesSpace dump can take a long time to import, and every TCP connection
-# is refused for the whole of it. Running the migrations into that gap fails
-# with "Communications link failure ... the driver has not received any
-# packets", which looks nothing like "the database is still loading".
+# Anything that connects before MySQL is accepting TCP gets "Communications
+# link failure ... the driver has not received any packets", which looks
+# nothing like "the database is not up yet". The healthcheck pings over TCP,
+# so waiting for it is the right gate.
 #
-# The healthcheck pings over TCP, so it only passes once the import has
-# finished and the real server is accepting connections. Waiting for it is
-# therefore exactly the right gate.
+# This is now quick: the dump is loaded as its own step below rather than by
+# the entrypoint, so nothing happens here but a normal server start.
 echo "==> Waiting for MySQL to accept connections"
-if [[ "${FRESH}" == true ]]; then
-  echo "    On a fresh start this includes importing the dump, which for a"
-  echo "    large repository can take 20 minutes or more. Nothing is wrong."
-fi
 
-DB_DEADLINE=$(( $(date +%s) + 7200 ))
+DB_START=$(date +%s)
+DB_DEADLINE=$(( DB_START + 7200 ))
+DB_CID=$(docker compose ps -q db 2>/dev/null || true)
+if [[ -z "${DB_CID}" ]]; then
+  echo "error: the database container was not created. Check: docker compose logs db" >&2
+  exit 1
+fi
+POLL=0
+WARNED_UNHEALTHY=false
+
+# How big is the data directory? This grows steadily while the dump is being
+# imported, which is the difference between "slow" and "hung" -- and without it
+# this loop printed nothing but anonymous dots for however long the import took.
+db_size() {
+  docker exec "${DB_CID}" du -sm /var/lib/mysql 2>/dev/null | cut -f1 || true
+}
+
 while true; do
   DB_STATUS=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' \
-                "$(docker compose ps -q db 2>/dev/null)" 2>/dev/null || echo starting)
+                "${DB_CID}" 2>/dev/null || echo starting)
 
   case "${DB_STATUS}" in
     healthy|running)
@@ -175,6 +183,19 @@ while true; do
       echo "  Check it with ./scripts/check-data.sh." >&2
       exit 1
       ;;
+    unhealthy)
+      # The healthcheck has a start period and a retry budget. On a long import
+      # that budget can run out while the import is still perfectly fine, and
+      # Docker will flip back to healthy when it finishes. Say so once rather
+      # than looping in silence, but keep waiting.
+      if [[ "${WARNED_UNHEALTHY}" == false ]]; then
+        WARNED_UNHEALTHY=true
+        echo
+        echo "    note: the healthcheck has used up its retries. That is expected"
+        echo "          on a long import -- MySQL does not answer on the network"
+        echo "          until it finishes. Still waiting; watch the size below."
+      fi
+      ;;
   esac
 
   if (( $(date +%s) > DB_DEADLINE )); then
@@ -184,11 +205,27 @@ while true; do
     exit 1
   fi
 
-  printf '.'
+  POLL=$(( POLL + 1 ))
+  if (( POLL % 6 == 0 )); then
+    # Once a minute, replace the dots with something that actually tells you
+    # whether progress is being made.
+    ELAPSED=$(( $(date +%s) - DB_START ))
+    SIZE=$(db_size)
+    printf '  %dm%02ds  data directory: %sM\n' \
+      $(( ELAPSED / 60 )) $(( ELAPSED % 60 )) "${SIZE:-?}"
+  else
+    printf '.'
+  fi
   sleep 10
 done
 echo
-echo "    ready"
+printf '    ready after %dm%02ds\n' \
+  $(( ( $(date +%s) - DB_START ) / 60 )) $(( ( $(date +%s) - DB_START ) % 60 ))
+
+# Load the dump as an explicit, checkable step. It skips itself if the
+# database already has tables, so this is safe on every start; only --fresh
+# empties the volume and makes it do real work.
+./scripts/load-db.sh
 
 # ArchivesSpace does not migrate the database on startup: it checks the schema
 # version and refuses to start if the tables are not there. That is the right

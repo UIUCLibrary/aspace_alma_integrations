@@ -43,6 +43,29 @@ default QEMU path.
 stack behaves identically on your laptop and on an amd64 CI runner. That is the
 whole point when you are trying to reproduce a bug someone else is seeing.
 
+**The database is the exception, and deliberately so.** `mysql` publishes a
+native `linux/arm64v8` image, so `DB_PLATFORM` is left empty and MySQL runs at
+full speed on Apple Silicon while only ArchivesSpace and Solr are emulated.
+Emulating the database as well made restoring a dump several times slower for no
+benefit — importing is precisely the CPU- and IO-heavy work that emulation
+punishes hardest, and unlike the application there is no compatibility reason to
+do it.
+
+The database is also tuned for import rather than durability: binary logging is
+off and InnoDB flushes once a second instead of on every transaction. Measured
+on a 173 MB dump, restore to accepting connections:
+
+| settings | time |
+|---|---|
+| stock | 31s |
+| relaxed durability only | 18s |
+| binary logging off only | 16s |
+| both (what we use) | **14s** |
+
+That trade is safe here because this database is a disposable mirror: if it is
+ever corrupted, the fix is `./scripts/up.sh --fresh`, which is what you would do
+anyway. Do not copy these settings to a real server.
+
 ---
 
 ## Quick start
@@ -184,12 +207,13 @@ Those flags matter:
 * **`--no-tablespaces`** — avoids needing the `PROCESS` privilege, which a
   read-only reporting account usually lacks.
 
-Naming and placement rules, because MySQL rather than this project imposes them:
+Naming and placement rules:
 
-* It must be **inside `docker/data/db-dump/`**. That directory is mounted at
-  MySQL's `/docker-entrypoint-initdb.d`.
-* **Exactly one dump in that directory.** MySQL runs everything in there in
-  filename order, so a second file is applied on top of the first.
+* It must be **inside `docker/data/db-dump/`**, which is mounted read-only into
+  the database container at `/dump`.
+* **Exactly one dump in that directory.** `load-db.sh` loads the first match and
+  ignores the rest, so a stale dump sorting ahead of the new one would be loaded
+  instead of it.
 * The name is up to you as long as it ends in **`.sql` or `.sql.gz`**. The `01-`
   prefix is only a convention for keeping the order obvious.
 * Uncompressed `.sql` works too; gzip just transfers faster.
@@ -363,15 +387,15 @@ matters because the fixes are unrelated. "Has not received any packets" means
 nothing was listening on the database port -- ArchivesSpace never got far enough
 to look at the schema, so `ASPACE_VERSION` is not involved.
 
-The cause is MySQL still importing your dump. Its entrypoint applies
-`/docker-entrypoint-initdb.d` using a temporary server that listens on a unix
-socket only, with **no TCP**, so every connection is refused for however long the
-import takes -- easily 20 minutes for a full ArchivesSpace database under
-emulation.
+It means nothing was listening on the database port yet. This used to be common
+because the dump was applied by MySQL's entrypoint, which does that work behind a
+temporary server bound to a unix socket with **no TCP** -- so the port stayed
+shut for the whole import.
 
-Current `up.sh` waits for the database to report healthy before migrating, so it
-should not happen. If you see it anyway, or you are running the steps by hand,
-wait for health first:
+The dump is now loaded as its own step (`scripts/load-db.sh`) after the server is
+up, so the database is reachable within seconds of starting. `up.sh` also waits
+for the healthcheck before doing anything that needs a connection. If you see
+this anyway, or you are running steps by hand, wait for health first:
 
 ```bash
 docker compose ps db                     # look for (healthy)
@@ -415,12 +439,17 @@ without `--routines --triggers`. Re-take it on the server with the flags in
 [The database dump](#the-database-dump), replace
 `data/db-dump/01-archivesspace.sql.gz`, and run `./scripts/up.sh --fresh`.
 
-**The dump seems not to have been applied at all.** MySQL only runs
-`/docker-entrypoint-initdb.d` on the first start of an *empty* database, so a
-plain restart will not pick up a newly copied dump. Use `./scripts/up.sh
---fresh`, which wipes the volume first. Check `./scripts/check-data.sh` shows
-exactly one dump, too — a second file in `data/db-dump/` is applied on top of
-the first.
+**The dump seems not to have been applied at all.** `load-db.sh` skips itself
+when the database already has tables, so a plain restart will not pick up a newly
+copied dump. Either reload it in place:
+
+```bash
+./scripts/load-db.sh --force
+```
+
+or use `./scripts/up.sh --fresh`, which wipes the volume first. Check that
+`./scripts/check-data.sh` shows exactly one dump, too — only the first is
+loaded.
 
 **Out of memory / the JVM dies.** Raise Docker's memory allocation, or lower
 `ASPACE_JAVA_XMX` and `SOLR_JAVA_MEM` in `.env`.
