@@ -8,7 +8,7 @@
               :class => 'btn btn-primary' %>
 </p>
 
-<% results = @search_data.nil? ? [] : @search_data.results %>
+<% results = @search_data.nil? || !@search_data.results? ? [] : @search_data['results'] %>
 
 <% if results.empty? %>
   <div class="alert alert-info">
@@ -48,7 +48,10 @@
     </tbody>
   </table>
 
-  <% if @search_data.respond_to?(:paginate) %>
-    <%= render_aspace_partial :partial => "search/pagination", :locals => {:search_data => @search_data} %>
+  <%# shared/pagination reads @search_data directly and dereferences
+      'this_page' before its own nil guard, so only render it when the search
+      actually came back paginated. %>
+  <% if @search_data && @search_data['last_page'].to_i > 1 %>
+    <%= render_aspace_partial :partial => "shared/pagination" %>
   <% end %>
 <% end %>
