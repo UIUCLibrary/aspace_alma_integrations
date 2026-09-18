@@ -129,6 +129,36 @@ docker/data/
 `docker/data/` is gitignored, so nothing you put there can be committed by
 accident.
 
+### Match the version to the server
+
+Set `ASPACE_VERSION` in `.env` to the version the server runs, not to the newest
+release. It defaults to `4.1.1`, which is what UIUC staging runs. Check the
+server with:
+
+```bash
+curl -s http://your-aspace-server:8089/ | grep -o '"archivesspace_version":"[^"]*"'
+```
+
+The version has to match in both directions, for different reasons:
+
+- **Too old** and it will not start at all. ArchivesSpace migrates forward only,
+  so a dump from a newer release has nowhere to go.
+- **Too new** and it starts — but the first boot quietly **migrates your data**
+  to the newer schema. That works, and it is a one-way change, but your local
+  copy is then no longer the thing staging is running, which defeats the point
+  of mirroring it.
+
+One setting covers the application and Solr, because ArchivesSpace publishes
+both images under the same tag. That is deliberate: it keeps the Solr configset
+matched to the application, which ArchivesSpace verifies by checksum on startup.
+
+If you change `ASPACE_VERSION` after you have already started, run
+`./scripts/up.sh --fresh`. Neither the database nor the Solr index downgrades —
+the database is on the old version's schema, and Solr's Lucene reads its own
+major version and one back but not forward. `--fresh` rebuilds both from
+`docker/data/`, which is untouched, so nothing is lost. `up.sh` notices the
+change and stops with this advice rather than letting you find out later.
+
 ### The database dump
 
 Take the dump on the server:
@@ -183,10 +213,15 @@ rsync -az user@server:/var/solr/data/archivesspace/ \
 if you copied a level too high or too low it will still find the index.
 
 **The catch:** Lucene will only open an index written by its own major version
-or the one before it. ArchivesSpace 4.2.1 ships Solr 9, so a Solr 8 or 9 index
+or the one before it. ArchivesSpace 4.x ships Solr 9, so a Solr 8 or 9 index
 opens and anything older does not — and the failure is an opaque exception at
 startup. `check-data.sh` prints the index format so you get some warning, and
 `restore-solr.sh` tells you what to do if it fails.
+
+The same rule bites on the minor versions if you change `ASPACE_VERSION`
+downward: 4.1.1 ships Lucene 9.8 and 4.2.1 ships Lucene 9.12, so an index that
+4.2.1 has opened may no longer load under 4.1.1. Your copy in `docker/data/` is
+still as it came off the server, so `./scripts/up.sh --fresh` puts it back.
 
 There is also no point copying an index that was being written to at the time,
 though on a quiet dev server that is rarely a problem in practice.
@@ -311,8 +346,40 @@ docker compose run --rm --no-deps \
 ```
 
 If that fails, check that `ASPACE_VERSION` in `.env` is at least the version the
-dump came from. ArchivesSpace migrates forward only, so pointing 4.2.1 at a dump
-from a newer release will not work.
+dump came from. ArchivesSpace migrates forward only, so pointing an older
+release at a dump from a newer one will not work.
+
+### The migrations fail with `Communications link failure`
+
+```
+Sequel::DatabaseConnectionError: Java::ComMysqlCjJdbcExceptions::CommunicationsException:
+Communications link failure
+The last packet sent successfully to the server was 0 milliseconds ago.
+The driver has not received any packets from the server.
+```
+
+This is a **readiness** problem, not a version problem, and the distinction
+matters because the fixes are unrelated. "Has not received any packets" means
+nothing was listening on the database port -- ArchivesSpace never got far enough
+to look at the schema, so `ASPACE_VERSION` is not involved.
+
+The cause is MySQL still importing your dump. Its entrypoint applies
+`/docker-entrypoint-initdb.d` using a temporary server that listens on a unix
+socket only, with **no TCP**, so every connection is refused for however long the
+import takes -- easily 20 minutes for a full ArchivesSpace database under
+emulation.
+
+Current `up.sh` waits for the database to report healthy before migrating, so it
+should not happen. If you see it anyway, or you are running the steps by hand,
+wait for health first:
+
+```bash
+docker compose ps db                     # look for (healthy)
+docker compose logs -f db                # watch the import
+```
+
+and re-run `./scripts/up.sh`. It is safe to re-run; the migrations are
+idempotent, and without `--fresh` it will not touch your data.
 
 ### ArchivesSpace exits during startup with a Bundler error
 

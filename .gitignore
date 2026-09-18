@@ -4,6 +4,7 @@
 docker/data/
 docker/config/config.rb
 docker/.env
+docker/.stack-version
 
 # Ruby
 .bundle/

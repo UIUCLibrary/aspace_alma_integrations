@@ -58,7 +58,7 @@ services:
     # application, so the configset and schema always match the app version.
     # Do not substitute a stock solr image unless you also supply the ASpace
     # configset -- the schema is not the default one.
-    image: archivesspace/solr:${ASPACE_VERSION:-4.2.1}
+    image: archivesspace/solr:${ASPACE_VERSION:-4.1.1}
     platform: ${ASPACE_PLATFORM:-linux/amd64}
     # The image ships the ArchivesSpace configset but does not create the core,
     # so it has to be precreated on first start. Without this you get an empty
@@ -81,7 +81,7 @@ services:
       start_period: 2m
 
   archivesspace:
-    image: archivesspace/archivesspace:${ASPACE_VERSION:-4.2.1}
+    image: archivesspace/archivesspace:${ASPACE_VERSION:-4.1.1}
     platform: ${ASPACE_PLATFORM:-linux/amd64}
     depends_on:
       db:

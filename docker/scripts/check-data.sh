@@ -113,7 +113,7 @@ else
           | strings 2>/dev/null | grep -Eo 'Lucene[0-9]+' | head -1 || true)
     if [[ -n "${FMT}" ]]; then
       echo "       index format: ${FMT}"
-      echo "       ArchivesSpace ${ASPACE_VERSION:-4.2.1} ships Solr 9 (Lucene 9)."
+      echo "       ArchivesSpace ${ASPACE_VERSION:-4.1.1} ships Solr 9 (Lucene 9)."
       echo "       Lucene reads its own major version and the one before it, so"
       echo "       Lucene 8 or 9 will open and anything older will not. If it"
       echo "       fails, ./scripts/reindex.sh always works."

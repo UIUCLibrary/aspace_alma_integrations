@@ -119,7 +119,7 @@ echo "error: the core did not load after the restore." >&2
 echo >&2
 echo "       The usual cause is Solr version skew: Lucene reads its own index" >&2
 echo "       format and one major version back, no further. ArchivesSpace" >&2
-echo "       ${ASPACE_VERSION:-4.2.1} ships Solr 9.x, so an index from Solr 8.x" >&2
+echo "       ${ASPACE_VERSION:-4.1.1} ships Solr 9.x, so an index from Solr 8.x" >&2
 echo "       is fine but one from 7.x or older is not." >&2
 echo >&2
 echo "       Look at the actual error:  docker compose logs solr" >&2
