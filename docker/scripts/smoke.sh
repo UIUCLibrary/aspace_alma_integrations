@@ -123,8 +123,24 @@ else
   echo "OK|no repository exists -- create one, or job pages will fail spuriously"
 fi
 
-printf '%s
-' "$SMOKE_PAGES" | while IFS='|' read -r LABEL PATH_; do
+# The report detail page and the JSON download only exist once an audit has
+# actually run, and they are the most intricate part of the plugin, so pick up
+# a finished audit if there is one and check those too. Without this the run
+# silently covers only the pages that work on an empty stack.
+AUDIT_ID=$(wget -q -O - --load-cookies smoke_cookies.txt \
+             http://localhost:8080/plugins/alma_audit_reports 2>/dev/null \
+           | grep -oE '/plugins/alma_audit_reports/[0-9][0-9]*' \
+           | sed 's|.*/||' | sort -n | tail -1)
+
+if [ -n "${AUDIT_ID:-}" ]; then
+  SMOKE_PAGES="${SMOKE_PAGES}
+audit report detail|/plugins/alma_audit_reports/${AUDIT_ID}"
+  echo "OK|found audit ${AUDIT_ID}, checking its report page too"
+else
+  echo "OK|no completed audit found -- report detail page not covered"
+fi
+
+printf '%s\n' "$SMOKE_PAGES" | while IFS='|' read -r LABEL PATH_; do
   [ -z "${LABEL:-}" ] && continue
   [ -z "${PATH_:-}" ] && continue
 
@@ -143,6 +159,34 @@ printf '%s
   else
     echo "PASS|${LABEL}|${PATH_}|HTTP 200|"
   fi
+
+  # Follow the download link the page itself generated. A broken download is
+  # invisible to a plain page check, and it is the point of the whole report.
+  case "$LABEL" in
+    "audit report detail")
+      DL=$(grep -oE 'href="[^"]*(download_file|/file/)[^"]*"' smoke_body.html \
+           | head -1 | sed 's/href="//;s/"$//;s/&amp;/\&/g')
+      if [ -n "$DL" ]; then
+        DCODE=$(wget -S --content-on-error -O smoke_dl.bin \
+                  --load-cookies smoke_cookies.txt "http://localhost:8080${DL}" 2>&1 \
+                | awk '/^  HTTP\//{c=$2} END{print c}')
+        if [ "${DCODE:-000}" = "200" ]; then
+          # A 200 is not enough: ArchivesSpace will happily hand back an HTML
+          # error page with a 200. The report is meant to be machine readable,
+          # so insist it actually parses as JSON.
+          if head -c 1 smoke_dl.bin | grep -q '{'; then
+            echo "PASS|report download|${DL}|HTTP 200|"
+          else
+            echo "FAIL|report download|${DL}|200 but body is not JSON|"
+          fi
+        else
+          echo "FAIL|report download|${DL}|HTTP ${DCODE:-000}|"
+        fi
+      else
+        echo "FAIL|report download|(none)|no download link rendered|"
+      fi
+      ;;
+  esac
 
   if [ "$SMOKE_VERBOSE" = "1" ]; then
     echo "BODY|${LABEL}"

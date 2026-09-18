@@ -11,7 +11,6 @@ ArchivesSpace::Application.routes.draw do
       # back to read one rather than waiting on a page while it runs.
       match('/plugins/alma_audit_reports' => 'alma_audit_reports#index', :via => [:get])
       match('/plugins/alma_audit_reports/:id' => 'alma_audit_reports#show', :via => [:get])
-      match('/plugins/alma_audit_reports/:id/download/:file_id' => 'alma_audit_reports#download', :via => [:get])
     end
   end
 end

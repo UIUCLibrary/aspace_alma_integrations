@@ -42,6 +42,9 @@ en:
     stat_errored: "%{count} could not be audited"
     stat_nz: "%{count} are linked to the Network Zone"
     view_report: View the full report
+    format: Report file format
+    skip_header: First row of the uploaded file is a header
+    summary: Audit summary
 
   alma_bulk_update_job:
     _singular: Alma Bulk Update
@@ -68,6 +71,11 @@ en:
     stat_skipped: "%{count} skipped"
     stat_failed: "%{count} failed"
     view_audit: View the audit report this was based on
+    format: Report file format
+    csv_column: CSV column (0 is the first)
+    skip_header: First row of the uploaded file is a header
+    include_unpublished: Include unpublished records
+    summary: Update summary
 
   alma_audit_reports:
     _singular: Alma Audit Report
@@ -80,7 +88,6 @@ en:
     view_job: View job
     index_error: "Could not load the list of audits: %{message}"
     not_an_audit: That job is not an Alma audit.
-    unknown_file: That file is not part of this audit report.
     no_summary: This audit has not produced a summary yet.
     stopped_early: "This audit stopped before it finished:"
     col_id: Job

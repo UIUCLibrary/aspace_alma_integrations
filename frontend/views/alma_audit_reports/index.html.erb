@@ -30,11 +30,15 @@
         <% job_id = result['uri'].to_s.split('/').last %>
         <tr>
           <td><%= job_id %></td>
-          <td><%= t("job.status_#{result['job_status']}", :default => result['job_status']) %></td>
+          <td>
+            <span class="<%= badge_class_for_status(result['status']) %>">
+              <%= t("job.status_#{result['status']}", :default => result['status']) %>
+            </span>
+          </td>
           <td><%= result['owner'] %></td>
           <td><%= result['create_time'] %></td>
           <td class="table-record-actions">
-            <% if result['job_status'] == 'completed' %>
+            <% if result['status'] == 'completed' %>
               <%= link_to t('alma_audit_reports.view'),
                           url_for(:controller => :alma_audit_reports, :action => :show, :id => job_id),
                           :class => 'btn btn-xs btn-default' %>

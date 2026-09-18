@@ -14,9 +14,7 @@ class AlmaAuditReportsController < ApplicationController
   # report files and links to a job which rewrites catalogue records.
   protect_from_forgery :with => :exception
 
-  set_access_control 'view_repository' => [:index, :show, :download]
-
-  include ExportHelper
+  set_access_control 'view_repository' => [:index, :show]
 
   AUDIT_JOB_TYPE = 'alma_audit_job'.freeze
 
@@ -63,34 +61,5 @@ class AlmaAuditReportsController < ApplicationController
                               .sort_by { |field| -field['records_with_addition'].to_i }
 
     @report_file = @files.find { |file| file['label'] == 'report' }
-  end
-
-  # Streams a job output file. The audit records which of its files is which,
-  # because ArchivesSpace's output_files endpoint returns bare ids.
-  def download
-    job = JSONModel(:job).find(params[:id])
-
-    unless job['job_type'] == AUDIT_JOB_TYPE
-      flash[:error] = I18n.t('alma_audit_reports.not_an_audit')
-      return redirect_to(:action => :index)
-    end
-
-    summary = (job.job['summary'] rescue nil) || {}
-    descriptor = Array(summary['files']).find { |file| file['id'].to_s == params[:file_id].to_s }
-
-    if descriptor.nil?
-      flash[:error] = I18n.t('alma_audit_reports.unknown_file')
-      return redirect_to(:action => :show, :id => params[:id])
-    end
-
-    filename = descriptor['filename'].to_s
-    extension = File.extname(filename).delete_prefix('.')
-    extension = 'json' if extension.empty?
-
-    url = "/repositories/#{JSONModel::repository}/jobs/#{params[:id]}/output_files/#{params[:file_id]}"
-
-    stream_file(url,
-                :format => extension,
-                :filename => File.basename(filename, File.extname(filename)))
   end
 end

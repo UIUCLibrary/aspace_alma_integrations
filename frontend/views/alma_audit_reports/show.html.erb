@@ -20,9 +20,12 @@
 
   <div class="alma-report-actions">
     <% if @report_file && @report_file['id'] %>
+      <%# ArchivesSpace already serves job output files, with the same
+          view_repository permission this page requires, so link to that
+          rather than streaming the bytes again from here. %>
       <%= link_to t('alma_audit_reports.download_json'),
-                  url_for(:controller => :alma_audit_reports, :action => :download,
-                          :id => @job.id, :file_id => @report_file['id']),
+                  url_for(:controller => :jobs, :action => :download_file,
+                          :job_id => @job.id, :id => @report_file['id']),
                   :class => 'btn btn-default' %>
     <% end %>
 
@@ -205,8 +208,8 @@
         <% next unless file['id'] %>
         <li>
           <%= link_to file['filename'],
-                      url_for(:controller => :alma_audit_reports, :action => :download,
-                              :id => @job.id, :file_id => file['id']) %>
+                      url_for(:controller => :jobs, :action => :download_file,
+                              :job_id => @job.id, :id => file['id']) %>
           <% if file['description'] %>&mdash; <%= file['description'] %><% end %>
         </li>
       <% end %>
