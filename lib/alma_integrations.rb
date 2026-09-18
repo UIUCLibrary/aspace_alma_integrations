@@ -11,6 +11,7 @@ require_relative 'alma_integrations/word_diff'
 require_relative 'alma_integrations/marc_preserver'
 require_relative 'alma_integrations/network_zone'
 require_relative 'alma_integrations/identifier_list'
+require_relative 'alma_integrations/identifier_pairs'
 require_relative 'alma_integrations/report_summary'
 require_relative 'alma_integrations/report_writer'
 

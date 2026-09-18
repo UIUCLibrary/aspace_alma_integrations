@@ -11,6 +11,7 @@ en:
     types:
       alma_audit_job: Alma Audit Report
       alma_bulk_update_job: Alma Bulk Update
+      alma_mms_assign_job: Assign Alma MMS IDs
 
   alma_audit_job:
     _singular: Alma Audit Report
@@ -76,6 +77,38 @@ en:
     skip_header: First row of the uploaded file is a header
     include_unpublished: Include unpublished records
     summary: Update summary
+
+  alma_mms_assign_job:
+    _singular: Assign Alma MMS IDs
+    _plural: Assign Alma MMS IDs
+    description: Write Alma MMS IDs into ArchivesSpace resources from a spreadsheet that pairs each MMS ID with a collection identifier.
+    intro: "Reads a spreadsheet with an MMS ID column and a collection identifier column, and writes each MMS ID into its resource. This is what the audit and bulk update jobs read to find a collection's catalogue record. Nothing is sent to Alma."
+    warning: An MMS ID written onto the wrong collection points a later bulk update at the wrong catalogue record. Leave the dry run ticked for a first pass and read the report before applying it.
+    upload: Spreadsheet
+    upload_help: A CSV or TSV export with both columns. The MMS ID and collection identifier columns are found by their header names; give the column numbers below if they cannot be recognised.
+    pairs: Or paste the rows
+    pairs_placeholder: "One row per line, MMS ID first: 99123456789012345,UA.15.24.809"
+    collection_id_field: Match collection identifiers against
+    collection_id_field_ead_id: EAD ID only
+    collection_id_field_auto: EAD ID, then resource identifier
+    collection_id_field_identifier: Resource identifier only
+    mms_column: MMS ID column (0 is the first)
+    collection_column: Collection identifier column (0 is the first)
+    column_placeholder: Leave blank to find it by header name
+    dry_run: Dry run (report what would change, write nothing)
+    overwrite: Replace an MMS ID that is already there
+    not_finished: This job has not produced a report yet. Check the job log for progress.
+    summary_heading: Assignment summary
+    stat_dry_run: This was a dry run. Nothing was written.
+    stat_would_assign: "%{count} would be given an MMS ID"
+    stat_would_replace: "%{count} would have an existing MMS ID replaced"
+    stat_assigned: "%{count} were given an MMS ID"
+    stat_replaced: "%{count} had an existing MMS ID replaced"
+    stat_unchanged: "%{count} already had the same MMS ID"
+    stat_conflict: "%{count} already had a different MMS ID and were left alone"
+    stat_errored: "%{count} rows could not be applied"
+    field_note: "MMS IDs are read from and written to user_defined.%{field}."
+    summary: Assignment summary
 
   alma_audit_reports:
     _singular: Alma Audit Report

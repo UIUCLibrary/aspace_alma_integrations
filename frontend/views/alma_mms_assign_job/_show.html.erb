@@ -1,0 +1,42 @@
+<%# Shown on the job page once MMS IDs have been assigned.
+
+  The full outcome for every row is in the attached JSON file, which
+  ArchivesSpace lists under the job's files. Only the headline numbers live on
+  the job itself, so this renders without reading the document.
+%>
+<% summary = (job.job['summary'] rescue nil) || {} %>
+<% rows = summary['rows'] || {} %>
+
+<div class="alma-audit-show">
+  <% if summary.empty? %>
+    <p><%= t('alma_mms_assign_job.not_finished') %></p>
+  <% else %>
+    <div class="alma-audit-headline">
+      <h4><%= t('alma_mms_assign_job.summary_heading') %></h4>
+      <ul>
+        <% if summary['dry_run'] %>
+          <li class="alma-audit-warning"><%= t('alma_mms_assign_job.stat_dry_run') %></li>
+          <li><%= t('alma_mms_assign_job.stat_would_assign', :count => rows['would_be_assigned'].to_i) %></li>
+          <% if rows['would_be_overwritten'].to_i > 0 %>
+            <li><%= t('alma_mms_assign_job.stat_would_replace', :count => rows['would_be_overwritten'].to_i) %></li>
+          <% end %>
+        <% else %>
+          <li><%= t('alma_mms_assign_job.stat_assigned', :count => rows['assigned'].to_i) %></li>
+          <% if rows['overwritten'].to_i > 0 %>
+            <li><%= t('alma_mms_assign_job.stat_replaced', :count => rows['overwritten'].to_i) %></li>
+          <% end %>
+        <% end %>
+        <li><%= t('alma_mms_assign_job.stat_unchanged', :count => rows['unchanged'].to_i) %></li>
+        <% if rows['conflict'].to_i > 0 %>
+          <li class="alma-audit-warning"><%= t('alma_mms_assign_job.stat_conflict', :count => rows['conflict'].to_i) %></li>
+        <% end %>
+        <% if rows['errored'].to_i > 0 %>
+          <li class="alma-audit-error"><%= t('alma_mms_assign_job.stat_errored', :count => rows['errored'].to_i) %></li>
+        <% end %>
+      </ul>
+      <p class="help-block">
+        <%= t('alma_mms_assign_job.field_note', :field => summary['mms_field']) %>
+      </p>
+    </div>
+  <% end %>
+</div>

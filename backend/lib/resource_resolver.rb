@@ -31,11 +31,16 @@ module AlmaIntegrations
 
     attr_reader :mms_field, :collection_id_field
 
-    def initialize(repo_id:, settings: nil, collection_id_field: 'auto')
+    def initialize(repo_id:, settings: nil, collection_id_field: 'auto', require_mms_id: true)
       @repo_id = repo_id
       @settings = settings || Settings.new
       @mms_field = validate_mms_field(@settings[:mms_field])
       @collection_id_field = collection_id_field.to_s.empty? ? 'auto' : collection_id_field.to_s
+      # Every other caller needs an MMS ID to do anything at all, so a resource
+      # without one is an error. The job that writes MMS IDs into ArchivesSpace
+      # is the exception: there, a blank field is the normal starting state and
+      # treating it as an error would reject every record it exists to fix.
+      @require_mms_id = require_mms_id
       @resources = {}
       @mms_ids = {}
     end
@@ -275,6 +280,7 @@ module AlmaIntegrations
 
       mms_id = @mms_ids[resource_id]
       mms_id = nil if mms_id.to_s.strip.empty?
+      missing_mms_id = @require_mms_id && mms_id.nil?
 
       Resolution.new(
         :input => entry.value,
@@ -288,8 +294,8 @@ module AlmaIntegrations
         :identifier => format_identifier(row[:identifier]),
         :lock_version => row[:lock_version],
         :system_mtime => row[:system_mtime],
-        :error => mms_id.nil? ? "Resource has no Alma MMS ID in user_defined.#{@mms_field}" : nil,
-        :error_kind => mms_id.nil? ? 'no_mms_id' : nil
+        :error => missing_mms_id ? "Resource has no Alma MMS ID in user_defined.#{@mms_field}" : nil,
+        :error_kind => missing_mms_id ? 'no_mms_id' : nil
       )
     end
 
