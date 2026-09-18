@@ -132,6 +132,10 @@ services:
       # Render real stack traces in the browser instead of a generic apology
       # page. Read by docker/dev_plugin, which is mounted below. Local only.
       ASPACE_DEBUG_EXCEPTIONS: "${ASPACE_DEBUG_EXCEPTIONS:-true}"
+      # Answer Alma API calls from docker/dev_plugin/fixtures instead of
+      # calling Alma. Empty means "really call Alma". Local only; see
+      # dev_plugin/frontend/alma_stub.rb.
+      ALMA_STUB_DIR: "${ALMA_STUB_DIR:-}"
     ports:
       - "${STAFF_PORT:-8080}:8080"
       - "${PUBLIC_PORT:-8081}:8081"

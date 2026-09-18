@@ -41,6 +41,67 @@ RSpec.describe AlmaIntegrations::MarcPreserver do
       expect(result.to_xml).to include('<controlfield tag="008">990101')
     end
 
+    # ArchivesSpace exports MARC in the http://www.loc.gov/MARC21/slim
+    # namespace, and the single-record push screen hands the exported node
+    # straight to the preserver. Every XPath here is written without a
+    # namespace prefix, so a record that arrives still carrying its namespace
+    # silently matches nothing: Alma's Date Entered on File was left
+    # unpreserved and preserved fields were appended after the last field
+    # rather than put in tag order. The other examples in this file build
+    # nodes without a namespace, which is why this went unnoticed.
+    it 'preserves fields from a namespaced ArchivesSpace export' do
+      aspace = Nokogiri::XML(<<~XML, &:noblanks).at_xpath('//*[local-name()="record"]')
+        <?xml version="1.0" encoding="UTF-8"?>
+        <collection xmlns="http://www.loc.gov/MARC21/slim">
+          <record>
+            <leader>00000npcaa2200000 u 4500</leader>
+            <controlfield tag="008">260918i19512007xx                  eng d</controlfield>
+            <datafield ind1="0" ind2="0" tag="245">
+              <subfield code="a">ArchivesSpace title</subfield>
+            </datafield>
+            <datafield ind1=" " ind2=" " tag="852">
+              <subfield code="a">Repository</subfield>
+            </datafield>
+          </record>
+        </collection>
+      XML
+
+      alma = Nokogiri::XML(<<~XML, &:noblanks).at_xpath('./record')
+        <record>
+          <controlfield tag="008">061207i19512007xx                  eng d</controlfield>
+          <datafield ind1=" " ind2=" " tag="035">
+            <subfield code="a">(ALA-Ar) 27/10/69</subfield>
+          </datafield>
+        </record>
+      XML
+
+      result = apply(aspace, alma, preserved_tags: ['035'])
+
+      expect(result.date_entered_preserved).to be(true)
+      expect(control_value(result, '008')).to start_with('061207')
+      expect(result.preserved_counts).to eq({ '035' => 1 })
+      expect(datafield_values(result, '035', 'a')).to eq(['(ALA-Ar) 27/10/69'])
+      # The 035 belongs between the 008 and the 245, not at the end.
+      expect(field_tags(result)).to eq(%w[008 035 245 852])
+      expect(result.warnings).to eq([])
+    end
+
+    it 'leaves the caller\'s document alone when handed a namespaced node' do
+      doc = Nokogiri::XML(<<~XML, &:noblanks)
+        <collection xmlns="http://www.loc.gov/MARC21/slim">
+          <record>
+            <controlfield tag="008">260918i19512007xx                  eng d</controlfield>
+          </record>
+        </collection>
+      XML
+      aspace = doc.at_xpath('//*[local-name()="record"]')
+
+      apply(aspace, marc_node(controlfields: { '008' => fixed_008(date_entered: '061207') }))
+
+      expect(doc.root.namespace.href).to eq('http://www.loc.gov/MARC21/slim')
+      expect(aspace.at_xpath('//*[local-name()="controlfield"]').text).to start_with('260918')
+    end
+
     it 'returns a warning instead of raising when the ArchivesSpace record has no 008' do
       result = nil
 

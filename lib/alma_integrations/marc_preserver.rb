@@ -61,19 +61,32 @@ module AlmaIntegrations
 
     private
 
+    # Every XPath below is written against un-namespaced element names, so the
+    # record has to be normalised before any of them will match.
+    #
+    # This used to strip namespaces only when handed a string. The single-record
+    # push screen passes a Nokogiri node instead, taken straight from the
+    # ArchivesSpace MARC export, and that export is in the
+    # http://www.loc.gov/MARC21/slim namespace -- so on that screen every
+    # ./controlfield and ./datafield lookup quietly matched nothing. Alma's
+    # "Date Entered on File" was never preserved, and preserved fields were
+    # appended after the last field instead of being put in tag order, because
+    # the query that finds the insertion point came back empty too. Neither
+    # failure was visible: the 035s did get copied, since they are read from the
+    # Alma record, which has no namespace.
+    #
+    # The node is reparsed rather than normalised in place. remove_namespaces!
+    # acts on the whole document, and the caller still owns the document its
+    # node came from.
     def record_node(source)
       return nil if source.nil?
 
-      node = if source.is_a?(Nokogiri::XML::Node)
-               source
-             else
-               doc = Nokogiri::XML(source.to_s, &:noblanks)
-               return nil if doc.root.nil?
+      doc = Nokogiri::XML(source.is_a?(Nokogiri::XML::Node) ? source.to_xml : source.to_s, &:noblanks)
+      return nil if doc.root.nil?
 
-               doc.remove_namespaces!
-               doc.root
-             end
+      doc.remove_namespaces!
 
+      node = doc.root
       node.name == 'record' ? node : node.at_xpath('.//record')
     end
 

@@ -14,6 +14,11 @@ class AlmaAuditReportsController < ApplicationController
   # report files and links to a job which rewrites catalogue records.
   protect_from_forgery :with => :exception
 
+  # See the note in AlmaIntegrationsController: this cannot be done in
+  # plugin_init.rb, because ApplicationController does not exist yet at the
+  # point a plugin's init file runs.
+  helper AlmaMarcDiffHelper
+
   set_access_control 'view_repository' => [:index, :show]
 
   AUDIT_JOB_TYPE = 'alma_audit_job'.freeze

@@ -60,3 +60,7 @@ if ENV.fetch('ASPACE_DEBUG_EXCEPTIONS', 'true').to_s.downcase == 'true'
   end
 
 end
+
+# Stub Alma API responses from fixture files when ALMA_STUB_DIR is set. See
+# alma_stub.rb for why, and for how to point it at a fixture directory.
+require_relative 'alma_stub'

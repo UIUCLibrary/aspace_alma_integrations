@@ -2,6 +2,14 @@ require 'advanced_query_builder'
 
 class AlmaIntegrationsController < ApplicationController
 
+  # ArchivesSpace does not autoload a plugin's frontend/helpers directory, so the
+  # MARC comparison helpers live in frontend/models and are attached here. This
+  # has to happen in the controller rather than in plugin_init.rb: plugin_init
+  # runs while the Rails application is still being defined, before
+  # ApplicationController exists, and referring to it there takes the whole
+  # frontend down at boot.
+  helper AlmaMarcDiffHelper
+
   set_access_control "view_repository" => [:index, :search, :add_bibs, :add_holdings, :add_items]
 
   def index
