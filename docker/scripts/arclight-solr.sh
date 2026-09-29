@@ -1,17 +1,22 @@
 #!/usr/bin/env bash
 #
-# Prepare and start the Arclight Solr core.
+# Prepare the Arclight Solr core.
 #
 #   ./scripts/arclight-solr.sh                     # prepare the configset and start
 #   ./scripts/arclight-solr.sh --conf <dir>        # take the configset from here
-#   ./scripts/arclight-solr.sh --reset             # throw the index away and rebuild the core
+#   ./scripts/arclight-solr.sh --reset             # throw the Arclight index away and rebuild
 #   ./scripts/arclight-solr.sh --status            # is it up, and how many documents
 #   ./scripts/arclight-solr.sh --prepare-only      # write the configset, do not start Solr
 #
-# This is the Solr that Arclight -- the public discovery front end -- reads
-# from, and that Arcflow indexes into. It is entirely separate from the
-# ArchivesSpace Solr on 8983: different schema, different core, different
-# container.
+# Arclight is the public discovery front end and Arcflow is the ETL that
+# indexes ArchivesSpace into it. Arclight's index lives as a second core in
+# the SAME Solr as ArchivesSpace's, which is how the UIUC dev and stage
+# servers are laid out, and means both cores are on 8983 -- the port Arcflow
+# and Arclight already expect, so neither needs reconfiguring.
+#
+# This script only prepares the configset on the host. The core itself is
+# created inside the container at startup by docker/solr/arclight-core.sh,
+# which also adds the is_creator field Arcflow needs.
 #
 # The configset comes from your own Arclight checkout, which is the only copy
 # guaranteed to match the Arclight and Arcuit you are actually running. Point
@@ -45,7 +50,7 @@ while [[ $# -gt 0 ]]; do
     --reset)        RESET=true ;;
     --status)       STATUS_ONLY=true ;;
     --prepare-only) PREPARE_ONLY=true ;;
-    -h|--help)      sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help)      sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "arclight-solr.sh: unknown option: $1" >&2; exit 2 ;;
   esac
   shift
@@ -60,18 +65,11 @@ fi
 set -a; source .env; set +a
 
 CORE="${ARCLIGHT_SOLR_CORE:-blacklight-core}"
-PORT="${ARCLIGHT_SOLR_PORT:-8984}"
+# Both cores are served by the one Solr, so this is the same port ArchivesSpace
+# uses. That is the point: Arclight defaults to 8983 and so does Arcflow.
+PORT="${SOLR_PORT:-8983}"
 CONF_DEST="data/arclight-solr/conf"
 INDEX_SRC="data/arclight-solr/index"
-
-# Everything below drives Compose, and the service sits behind the `arclight`
-# profile so that it does not exist at all for people who are not indexing.
-# Rather than making every invocation pass --profile, export it -- which also
-# means scripts/up.sh, down.sh and logs.sh pick the service up once .env says
-# COMPOSE_PROFILES=arclight.
-if [[ ",${COMPOSE_PROFILES:-}," != *",arclight,"* ]]; then
-  export COMPOSE_PROFILES="${COMPOSE_PROFILES:+${COMPOSE_PROFILES},}arclight"
-fi
 
 ping_url="http://localhost:${PORT}/solr/${CORE}/admin/ping"
 select_url="http://localhost:${PORT}/solr/${CORE}/select?q=*:*&rows=0"
@@ -162,88 +160,34 @@ for required in schema.xml solrconfig.xml; do
   fi
 done
 
-# --- add the field Arcflow needs and Arclight does not ship ------------------
-# Arcflow marks its creator documents with a boolean `is_creator` so they can
-# be told apart from collections. That is not one of Arclight's fields, and it
-# does not match any of the dynamic field patterns (*_ssim, *_tesim and so on),
-# so indexing creators into a stock Arclight core fails with:
-#
-#   ERROR: [doc=creator_corporate_entities_584] unknown field 'is_creator'
-#
-# Arcflow's README says to add it through Solr's Schema API. That cannot work
-# here: Arclight's solrconfig.xml sets
-#
-#   <schemaFactory class="ClassicIndexSchemaFactory"/>
-#
-# which makes the schema read-only at runtime -- the Schema API returns 400.
-# The field has to be in schema.xml before the core is created, so put it
-# there, in our copy, leaving your Arclight checkout untouched.
-if grep -q 'name="is_creator"' "${CONF_DEST}/schema.xml"; then
-  echo "==> is_creator is already in the schema"
-else
-  echo "==> Adding the is_creator field Arcflow's creator records need"
-  python3 - "${CONF_DEST}/schema.xml" <<'PY'
-import sys
-
-path = sys.argv[1]
-with open(path, encoding='utf-8') as handle:
-    schema = handle.read()
-
-field = (
-    '\n   <!-- Added by aspace_alma_integrations/docker/scripts/arclight-solr.sh.\n'
-    '        Arcflow marks creator documents with this so they can be told apart\n'
-    '        from collections. It is not part of stock Arclight, and because this\n'
-    '        configset uses ClassicIndexSchemaFactory it cannot be added through\n'
-    '        the Schema API at runtime. -->\n'
-    '   <field name="is_creator" type="boolean" indexed="true" stored="true" '
-    'multiValued="false" />\n'
-)
-
-anchor = '<field name="timestamp"'
-index = schema.find(anchor)
-if index == -1:
-    # No timestamp field to sit beside, so fall back to the end of the
-    # <fields> block, or to just before </schema> if this configset has none.
-    for closing in ('</fields>', '</schema>'):
-        index = schema.find(closing)
-        if index != -1:
-            schema = schema[:index] + field + schema[index:]
-            break
-    else:
-        raise SystemExit('could not find anywhere to add is_creator in %s' % path)
-else:
-    line_start = schema.rfind('\n', 0, index) + 1
-    schema = schema[:line_start] + field.lstrip('\n') + schema[line_start:]
-
-with open(path, 'w', encoding='utf-8') as handle:
-    handle.write(schema)
-PY
-
-  # A schema Solr cannot parse gives an error at core load that points at the
-  # core rather than at this edit, so check it here while the cause is obvious.
-  if ! python3 -c "import xml.dom.minidom,sys; xml.dom.minidom.parse(sys.argv[1])" \
-         "${CONF_DEST}/schema.xml" >/dev/null 2>&1; then
-    echo "error: adding is_creator left schema.xml unparseable. Not starting Solr." >&2
-    echo "       Re-run to rebuild the configset from source." >&2
-    exit 1
-  fi
-fi
+# The is_creator field Arcflow needs is NOT added here. It is injected into
+# the core's own schema inside the container by docker/solr/arclight-core.sh,
+# before Solr starts, so that it is present however the container was brought
+# up rather than only when this script was remembered. That also leaves the
+# copy below identical to your Arclight checkout.
 
 if [[ "${PREPARE_ONLY}" == true ]]; then
   echo
   echo "==> Configset ready in ${CONF_DEST}. Not starting Solr (--prepare-only)."
+  echo "    The core itself is created when the Solr container starts."
   exit 0
 fi
 
 # --- reset ------------------------------------------------------------------
-# solr-precreate does nothing when the core already exists, which is what you
+# precreate-core does nothing when the core already exists, which is what you
 # want on a normal restart and exactly what you do not want after changing the
-# configset. Dropping the volume is the honest way to apply one.
+# configset. Removing the core directory is how you apply one.
+#
+# Note what this does NOT do: drop the solr-data volume. ArchivesSpace's index
+# is on that same volume now, and rebuilding it is a far longer job than
+# anything to do with Arclight. Only the Arclight core is removed.
 if [[ "${RESET}" == true ]]; then
-  echo "==> Removing the existing Arclight index"
-  docker compose stop arclight-solr >/dev/null 2>&1 || true
-  docker compose rm -fsv arclight-solr >/dev/null 2>&1 || true
-  docker volume rm -f aspace-alma_arclight-solr-data >/dev/null 2>&1 || true
+  echo "==> Removing the Arclight core (ArchivesSpace's index is left alone)"
+  docker compose stop solr >/dev/null 2>&1 || true
+  # --user root because the core directory is owned by uid 8983 but its parent
+  # is not, and --no-deps so this does not drag the database up with it.
+  docker compose run --rm --user root --no-deps --entrypoint sh solr -c \
+    "rm -rf /var/solr/data/${CORE}" >/dev/null 2>&1 || true
 fi
 
 # --- restore a copied index, if there is one --------------------------------
@@ -277,8 +221,19 @@ if [[ -d "${INDEX_SRC}" ]]; then
   fi
 fi
 
-echo "==> Starting Arclight Solr"
-docker compose up -d arclight-solr >/dev/null
+# --- start ------------------------------------------------------------------
+# The core is created during container startup, so a Solr that was already
+# running before the configset was prepared does not have it yet. Restarting is
+# what makes it appear -- otherwise the core 404s for no visible reason.
+if curl -sf "${ping_url}" >/dev/null 2>&1 && [[ "${RESET}" != true ]]; then
+  echo "==> The ${CORE} core is already up"
+elif [[ -n "$(docker compose ps --status running -q solr 2>/dev/null)" ]]; then
+  echo "==> Restarting Solr so it creates the ${CORE} core"
+  docker compose restart solr >/dev/null
+else
+  echo "==> Starting Solr"
+  docker compose up -d solr >/dev/null
+fi
 
 echo "==> Waiting for the ${CORE} core"
 UP=false
@@ -291,7 +246,8 @@ echo
 
 if [[ "${UP}" != true ]]; then
   echo "error: the ${CORE} core did not come up." >&2
-  echo "       Check: docker compose logs arclight-solr" >&2
+  echo "       Check: docker compose logs solr" >&2
+  echo "       Lines from the startup script are prefixed 'arclight-core:'." >&2
   echo >&2
   echo "       If the configset changed since the core was created, Solr will" >&2
   echo "       still be using the old one. Rebuild it with:" >&2
@@ -304,15 +260,15 @@ if [[ "${RESTORE}" == true ]]; then
   # Solr must not be running while its index directory is swapped, but the
   # core had to exist first so that its conf/ is in place -- hence starting,
   # waiting, then stopping.
-  docker compose stop arclight-solr >/dev/null
-  docker compose run --rm --user root --no-deps --entrypoint sh arclight-solr -c \
+  docker compose stop solr >/dev/null
+  docker compose run --rm --user root --no-deps --entrypoint sh solr -c \
     "rm -rf /var/solr/data/${CORE}/data" >/dev/null
-  docker compose cp "${RESTORE_SRC}" "arclight-solr:/var/solr/data/${CORE}/data"
+  docker compose cp "${RESTORE_SRC}" "solr:/var/solr/data/${CORE}/data"
   # Files arrive owned by root; the Solr image runs as uid 8983 and then
   # cannot write to its own index.
-  docker compose run --rm --user root --no-deps --entrypoint sh arclight-solr -c \
+  docker compose run --rm --user root --no-deps --entrypoint sh solr -c \
     "chown -R 8983:8983 /var/solr/data/${CORE}" >/dev/null
-  docker compose up -d arclight-solr >/dev/null
+  docker compose up -d solr >/dev/null
 
   for _ in $(seq 1 60); do
     curl -sf "${ping_url}" >/dev/null 2>&1 && break
@@ -325,18 +281,19 @@ fi
 COUNT=$(doc_count)
 
 echo
-echo "==> Arclight Solr is up."
+echo "==> The Arclight core is up, alongside ArchivesSpace's, on ${PORT}."
 echo
-echo "  Core       http://localhost:${PORT}/solr/${CORE}"
-echo "  Admin UI   http://localhost:${PORT}/solr/#/${CORE}"
-echo "  Documents  ${COUNT}"
+echo "  Arclight core     http://localhost:${PORT}/solr/${CORE}"
+echo "  ArchivesSpace     http://localhost:${PORT}/solr/archivesspace"
+echo "  Admin UI          http://localhost:${PORT}/solr/#/${CORE}"
+echo "  Documents         ${COUNT}"
 echo
-echo "  Point Arclight at it (it defaults to 8983, which is ArchivesSpace's):"
-echo "    SOLR_URL=http://localhost:${PORT}/solr/${CORE} bin/dev"
+echo "  Both are on Solr's default port, so nothing needs reconfiguring:"
+echo "    bin/dev"
 echo
 echo "  Index into it with Arcflow:"
 echo "    python -m arcflow.main \\"
 echo "      --arclight-dir /path/to/arclight \\"
 echo "      --solr-url http://localhost:${PORT}/solr/${CORE} \\"
-echo "      --aspace-solr-url http://localhost:${SOLR_PORT:-8983}/solr/archivesspace"
+echo "      --aspace-solr-url http://localhost:${PORT}/solr/archivesspace"
 echo

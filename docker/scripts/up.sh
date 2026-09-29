@@ -273,12 +273,17 @@ echo "    done"
 # top of this script compares against it on the next run.
 echo "${ASPACE_VERSION}" > .stack-version
 
-# The Arclight Solr core bind-mounts its configset from ./data, which has to
-# exist and be populated before the container starts -- Docker would otherwise
-# create an empty directory and Solr would precreate a core with no schema.
-# Do that first, then let `up -d` below start the container along with
-# everything else.
-if [[ ",${COMPOSE_PROFILES:-}," == *",arclight,"* ]]; then
+# Compose cannot make a bind mount conditional, so this path is always mounted
+# into Solr. Create it here so that it belongs to you: left to Docker it would
+# be created as an empty root-owned directory the first time the stack starts.
+mkdir -p data/arclight-solr/conf
+
+# The Arclight core's configset is bind-mounted from ./data, which has to
+# exist and be populated before the Solr container starts -- the core is
+# created during container startup, so a configset that arrives later is not
+# picked up until Solr is restarted. Prepare it first, then let `up -d` below
+# start Solr along with everything else.
+if [[ "${ARCLIGHT_SOLR_ENABLED:-false}" == true ]]; then
   echo "==> Preparing the Arclight Solr configset"
   ./scripts/arclight-solr.sh --prepare-only
 fi
@@ -333,8 +338,8 @@ echo "  Staff interface   http://localhost:${STAFF_PORT:-8080}"
 echo "  Public interface  http://localhost:${PUBLIC_PORT:-8081}"
 echo "  Backend API       http://localhost:${BACKEND_PORT:-8089}"
 echo "  Solr              http://localhost:${SOLR_PORT:-8983}/solr"
-if [[ ",${COMPOSE_PROFILES:-}," == *",arclight,"* ]]; then
-  echo "  Arclight Solr     http://localhost:${ARCLIGHT_SOLR_PORT:-8984}/solr/${ARCLIGHT_SOLR_CORE:-blacklight-core}"
+if [[ "${ARCLIGHT_SOLR_ENABLED:-false}" == true ]]; then
+  echo "  Arclight core     http://localhost:${SOLR_PORT:-8983}/solr/${ARCLIGHT_SOLR_CORE:-blacklight-core}"
 fi
 echo
 if [[ -n "$(ls data/db-dump/*.sql data/db-dump/*.sql.gz 2>/dev/null || true)" ]]; then
@@ -347,9 +352,10 @@ echo "  Plugin:  Repository menu -> Plugins -> Alma Integrations"
 echo "  Jobs:    Create -> Job -> Alma Audit"
 echo
 
-if [[ ",${COMPOSE_PROFILES:-}," == *",arclight,"* ]]; then
-  # Started by `up -d` above; this waits for the core, restores a copied index
-  # if there is one, and prints the Arcflow and Arclight commands.
+if [[ "${ARCLIGHT_SOLR_ENABLED:-false}" == true ]]; then
+  # Solr is already up from `up -d` above, and created the core during startup.
+  # This waits for it, restores a copied index if there is one, and prints the
+  # Arcflow and Arclight commands.
   ./scripts/arclight-solr.sh
 fi
 

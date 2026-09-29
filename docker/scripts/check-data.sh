@@ -158,10 +158,10 @@ fi
 echo
 
 # --- arclight solr ---------------------------------------------------------
-# Only worth reporting when the profile is on; otherwise the service does not
-# exist and none of this applies.
-if [[ ",${COMPOSE_PROFILES:-}," == *",arclight,"* ]]; then
-  echo "Arclight Solr -- data/arclight-solr/"
+# Only worth reporting when the Arclight core is switched on; otherwise it is
+# never created and none of this applies.
+if [[ "${ARCLIGHT_SOLR_ENABLED:-false}" == true ]]; then
+  echo "Arclight Solr core -- data/arclight-solr/"
 
   if [[ -n "${ARCLIGHT_SOLR_CONF:-}" ]]; then
     if [[ -f "${ARCLIGHT_SOLR_CONF}/schema.xml" || -f "${ARCLIGHT_SOLR_CONF}/conf/schema.xml" ]]; then

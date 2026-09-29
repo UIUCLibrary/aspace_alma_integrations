@@ -94,77 +94,51 @@ services:
     # The image ships the ArchivesSpace configset but does not create the core,
     # so it has to be precreated on first start. Without this you get an empty
     # /var/solr/data and ArchivesSpace cannot reach its index.
+    #
+    # This one Solr also hosts Arclight's core, which is created by the initdb
+    # script mounted below -- solr-precreate runs run-initdb before creating
+    # its own core, so both exist before Solr starts. Two cores in one Solr is
+    # how the UIUC dev and stage servers are laid out, and it keeps everything
+    # on 8983, which is the port both Arcflow and Arclight already expect.
     command:
       - solr-precreate
       - archivesspace
       - /opt/solr/server/solr/configsets/archivesspace
     environment:
-      SOLR_JAVA_MEM: ${SOLR_JAVA_MEM:--Xms512m -Xmx1g}
-    ports:
-      - "${SOLR_PORT:-8983}:8983"
-    volumes:
-      - solr-data:/var/solr
-    healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8983/solr/archivesspace/admin/ping || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 30
-      start_period: 2m
-
-  # A second, entirely separate Solr for Arclight -- the public discovery
-  # front end -- so that the Arcflow ETL pipeline can be exercised from end to
-  # end: ArchivesSpace here, Arclight's index here, and Arcflow and Arclight
-  # itself running on your laptop against both.
-  #
-  # It only starts when the `arclight` profile is active, so the stack behaves
-  # exactly as before for anyone not working on indexing. Turn it on by
-  # setting COMPOSE_PROFILES=arclight in .env; Compose reads that itself, so
-  # every script in scripts/ picks it up with no extra flags.
-  #
-  # Deliberately NOT the archivesspace/solr image. This core has nothing to do
-  # with ArchivesSpace: it carries Arclight's own configset, whose schema is
-  # completely different. Using the stock image also means it is one of the
-  # few things in this stack that is NOT amd64-only -- `solr` is published for
-  # arm64 as well, so on Apple Silicon this runs natively while ArchivesSpace
-  # is emulated. That matters here more than anywhere else in the stack:
-  # indexing thousands of records through Arcflow is precisely the sustained,
-  # CPU-heavy work that emulation punishes.
-  arclight-solr:
-    image: solr:${ARCLIGHT_SOLR_VERSION:-9.7.0}
-    profiles: [arclight]
-    # Empty means "let Docker pick", i.e. native. See the note above.
-    platform: ${ARCLIGHT_SOLR_PLATFORM:-}
-    # Matches Arclight's own docker-compose.yml upstream: precreate the core
-    # from the configset rather than relying on Solr's _default one, which
-    # would give a schema Arclight cannot use.
-    #
-    # solr-precreate is a no-op once the core exists, so changing the configset
-    # later needs ./scripts/arclight-solr.sh --reset to take effect.
-    command:
-      - solr-precreate
-      - ${ARCLIGHT_SOLR_CORE:-blacklight-core}
-      - /arclight-conf
-    environment:
-      SOLR_JAVA_MEM: ${ARCLIGHT_SOLR_JAVA_MEM:--Xms256m -Xmx512m}
+      # One JVM now serves both cores, so this is a little larger than Solr
+      # needs for ArchivesSpace alone.
+      SOLR_JAVA_MEM: ${SOLR_JAVA_MEM:--Xms512m -Xmx1536m}
       # Arclight's default request handler builds a large boolean query, and
       # the traject configs add more clauses on top. UIUC raise this on their
       # own Arclight Solr; without it a big collection can fail to index with
       # "too many boolean clauses" rather than anything that names the cause.
-      SOLR_OPTS: ${ARCLIGHT_SOLR_OPTS:--Dsolr.max.booleanClauses=2048}
+      # It only raises a ceiling, so the ArchivesSpace core is unaffected.
+      SOLR_OPTS: ${SOLR_OPTS:--Dsolr.max.booleanClauses=2048}
+      ARCLIGHT_SOLR_CORE: ${ARCLIGHT_SOLR_CORE:-blacklight-core}
     ports:
-      # 8984 on the host by default, because 8983 is already ArchivesSpace's
-      # Solr. Arcflow and Arclight both assume 8983, so both need telling --
-      # see README.md, "Indexing into Arclight with Arcflow".
-      - "${ARCLIGHT_SOLR_PORT:-8984}:8983"
+      - "${SOLR_PORT:-8983}:8983"
     volumes:
-      # Prepared by ./scripts/arclight-solr.sh, which copies the configset out
-      # of your Arclight checkout (or downloads Arclight's) and adds the one
-      # field Arcflow needs that Arclight does not ship. Read-only: Solr copies
-      # it into the core at precreate time and never writes back.
-      - ./data/arclight-solr/conf:/arclight-conf:ro
-      - arclight-solr-data:/var/solr
+      - solr-data:/var/solr
+      # Arclight's configset, prepared on the host by
+      # ./scripts/arclight-solr.sh, which copies it out of your Arclight
+      # checkout or downloads Arclight's own. Mounted as a configset directory
+      # (the conf/ below is deliberate) because that is the layout
+      # precreate-core expects. Read-only: Solr copies it into the core and
+      # never writes back.
+      #
+      # A bind mount cannot be conditional, so this path is always mounted.
+      # When it is empty -- the normal case for anyone not working on Arclight
+      # indexing -- the startup script notices and skips the core entirely.
+      - ./data/arclight-solr/conf:/arclight-configset/conf:ro
+      # Creates the Arclight core and adds Arcflow's is_creator field before
+      # Solr starts. See the script for why that cannot be done over the
+      # Schema API.
+      - ./solr/arclight-core.sh:/docker-entrypoint-initdb.d/10-arclight-core.sh:ro
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8983/solr/${ARCLIGHT_SOLR_CORE:-blacklight-core}/admin/ping || exit 1"]
+      # Only ArchivesSpace's core is checked. The Arclight core is optional and
+      # the rest of the stack does not depend on it, so its absence must not
+      # hold up startup.
+      test: ["CMD-SHELL", "curl -sf http://localhost:8983/solr/archivesspace/admin/ping || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 30
@@ -228,5 +202,4 @@ services:
 volumes:
   db-data:
   solr-data:
-  arclight-solr-data:
   aspace-data:
