@@ -526,6 +526,35 @@ publishes — so that file usually needs nothing but a username and password.
 If you do move Solr off 8983 by setting `SOLR_PORT`, both cores move together
 and both tools then need telling.
 
+### Where Arcflow has to run, and why
+
+Arcflow's one path argument, `--arclight-dir`, points at **Arclight** — there is
+no ArchivesSpace equivalent. Arcflow's own README still shows an `--aspace-dir`
+in its Quick Start and Usage sections, but that option was removed from the
+code; pass it and `argparse` exits with `unrecognized arguments: --aspace-dir`.
+(Its README also calls the extra Traject config `--traject-extra-config`, where
+the code says `--ead-extra-config`, and omits `--aspace-solr-url`, which is
+genuinely required.)
+
+So ArchivesSpace does **not** have to be on the same machine as Arcflow. Every
+ArchivesSpace interaction is HTTP: records and jobs through ArchiveSnake, the
+search index through `--aspace-solr-url`, and even generated PDFs, which Arcflow
+pulls from `/jobs/{id}/output_files/{id}` rather than reading off disk. A
+container is a perfectly good place for it.
+
+Arclight is the side that must be local. Arcflow writes `config/repositories.yml`
+into the Arclight checkout, drops EAD XML into `public/xml` and PDFs into
+`public/pdf`, reads Arcuit's Traject configs out of `lib/arcuit/traject/`, and
+shells out to `bundle show arclight` and `bundle exec traject` with the Arclight
+directory as the working directory. It needs a real, `bundle install`ed checkout,
+not a URL.
+
+That lines up with how you are already working: Arclight and Arcuit on the
+laptop under `bin/dev`, and Arcflow run from the laptop too, beside that
+checkout, pointed at this stack over HTTP. Running Arcflow *inside* this
+container would be backwards — it would mean putting the whole Arclight Rails
+app in here as well, just to give `--arclight-dir` something to point at.
+
 ### The `is_creator` field
 
 Arcflow marks its creator documents with a boolean `is_creator`, so they can be
