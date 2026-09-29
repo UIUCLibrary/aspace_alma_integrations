@@ -15,6 +15,14 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+# Read .env if it is there. This script is happy without one -- everything it
+# checks is a file on disk -- but the Arclight section below is driven from it,
+# and ASPACE_VERSION is quoted in the Solr advice.
+if [[ -f .env ]]; then
+  # shellcheck disable=SC1091
+  set -a; source .env; set +a
+fi
+
 PROBLEMS=0
 WARNINGS=0
 
@@ -148,6 +156,55 @@ if [[ "${FOUND_STATE}" == false ]]; then
 fi
 
 echo
+
+# --- arclight solr ---------------------------------------------------------
+# Only worth reporting when the profile is on; otherwise the service does not
+# exist and none of this applies.
+if [[ ",${COMPOSE_PROFILES:-}," == *",arclight,"* ]]; then
+  echo "Arclight Solr -- data/arclight-solr/"
+
+  if [[ -n "${ARCLIGHT_SOLR_CONF:-}" ]]; then
+    if [[ -f "${ARCLIGHT_SOLR_CONF}/schema.xml" || -f "${ARCLIGHT_SOLR_CONF}/conf/schema.xml" ]]; then
+      ok "configset source: ${ARCLIGHT_SOLR_CONF}"
+    else
+      problem "ARCLIGHT_SOLR_CONF is set to ${ARCLIGHT_SOLR_CONF}, but there is no"
+      echo "       schema.xml there. In an Arclight application the configset is"
+      echo "       at <app>/solr/conf. Fix it in .env, or clear it to download"
+      echo "       Arclight's own instead."
+    fi
+  else
+    warn "ARCLIGHT_SOLR_CONF is not set, so Arclight's stock configset will be"
+    echo "       downloaded. That indexes fine, but it will not carry any Arcuit"
+    echo "       changes. Point it at your Arclight checkout's solr/conf to be"
+    echo "       sure you are testing against the schema you actually run."
+  fi
+
+  if [[ -f data/arclight-solr/conf/schema.xml ]]; then
+    ok "prepared configset in data/arclight-solr/conf"
+  else
+    warn "not prepared yet. ./scripts/arclight-solr.sh does it, and up.sh calls"
+    echo "       that for you."
+  fi
+
+  # Optional, and most people testing Arcflow deliberately will not have one:
+  # the point of the exercise is usually to build the index, not copy it.
+  if [[ -d data/arclight-solr/index ]]; then
+    if   [[ -d data/arclight-solr/index/index ]];      then AL_SRC=data/arclight-solr/index
+    elif [[ -d data/arclight-solr/index/data/index ]]; then AL_SRC=data/arclight-solr/index/data
+    else AL_SRC=""
+    fi
+    if [[ -n "${AL_SRC}" ]]; then
+      ok "copied index: ${AL_SRC}/index ($(du -sh "${AL_SRC}" 2>/dev/null | cut -f1))"
+    else
+      problem "data/arclight-solr/index exists but has no Lucene index under it."
+      echo "       Looked for index/ and data/index/."
+    fi
+  else
+    ok "no copied index (Arcflow will build one)"
+  fi
+
+  echo
+fi
 
 # --- ownership -------------------------------------------------------------
 # The containers run as unprivileged users, so a file the host copied down as

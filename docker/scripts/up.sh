@@ -273,6 +273,16 @@ echo "    done"
 # top of this script compares against it on the next run.
 echo "${ASPACE_VERSION}" > .stack-version
 
+# The Arclight Solr core bind-mounts its configset from ./data, which has to
+# exist and be populated before the container starts -- Docker would otherwise
+# create an empty directory and Solr would precreate a core with no schema.
+# Do that first, then let `up -d` below start the container along with
+# everything else.
+if [[ ",${COMPOSE_PROFILES:-}," == *",arclight,"* ]]; then
+  echo "==> Preparing the Arclight Solr configset"
+  ./scripts/arclight-solr.sh --prepare-only
+fi
+
 echo "==> Starting ArchivesSpace"
 docker compose up -d
 
@@ -323,6 +333,9 @@ echo "  Staff interface   http://localhost:${STAFF_PORT:-8080}"
 echo "  Public interface  http://localhost:${PUBLIC_PORT:-8081}"
 echo "  Backend API       http://localhost:${BACKEND_PORT:-8089}"
 echo "  Solr              http://localhost:${SOLR_PORT:-8983}/solr"
+if [[ ",${COMPOSE_PROFILES:-}," == *",arclight,"* ]]; then
+  echo "  Arclight Solr     http://localhost:${ARCLIGHT_SOLR_PORT:-8984}/solr/${ARCLIGHT_SOLR_CORE:-blacklight-core}"
+fi
 echo
 if [[ -n "$(ls data/db-dump/*.sql data/db-dump/*.sql.gz 2>/dev/null || true)" ]]; then
   echo "  Log in with an account from the mirrored server."
@@ -333,6 +346,12 @@ echo
 echo "  Plugin:  Repository menu -> Plugins -> Alma Integrations"
 echo "  Jobs:    Create -> Job -> Alma Audit"
 echo
+
+if [[ ",${COMPOSE_PROFILES:-}," == *",arclight,"* ]]; then
+  # Started by `up -d` above; this waits for the core, restores a copied index
+  # if there is one, and prints the Arcflow and Arclight commands.
+  ./scripts/arclight-solr.sh
+fi
 
 if [[ "${FOLLOW}" == true ]]; then
   docker compose logs -f archivesspace
