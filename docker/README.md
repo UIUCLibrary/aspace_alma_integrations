@@ -112,6 +112,10 @@ dump, it is `admin` / `admin`.)
 The plugin is at **Repository menu → Plugins → Alma Integrations**, and the new
 jobs are under **Create → Job → Alma Audit**.
 
+Working on the Arcflow indexing pipeline rather than the plugin? The stack can
+run Arclight's Solr as well — see
+[Indexing into Arclight with Arcflow](#indexing-into-arclight-with-arcflow).
+
 ---
 
 ## Copying the data down from a server
@@ -424,6 +428,177 @@ sandbox is shared.
 **Use a sandbox API key.** The bulk update job writes to Alma. Against a
 production key, a mistake here rewrites real catalogue records. The job
 defaults to dry-run, but do not rely on that as your only safeguard.
+
+---
+
+## Indexing into Arclight with Arcflow
+
+Arclight is the public discovery front end, themed by our Arcuit engine, and
+[Arcflow](https://github.com/UIUCLibrary/arcflow) is the ETL that moves records
+from ArchivesSpace into it. If you are working on that pipeline rather than on
+the staff interface, this stack can run Arclight's Solr for you too, so that
+the whole loop is local.
+
+Arcflow and Arclight themselves stay on your laptop. Only Solr moves into
+Docker:
+
+```
+  Arcflow  ──── ArchivesSpace API ──────►  localhost:8089   (this stack)
+     │     ──── ArchivesSpace Solr ─────►  localhost:8983   (this stack)
+     │
+     └──── bundle exec traject ─────────►  localhost:8984   (this stack)
+                                              Arclight Solr, blacklight-core
+                                                    ▲
+  Arclight + Arcuit, bin/dev on :3000 ──────────────┘
+```
+
+### Turning it on
+
+It is off by default, so that nothing changes for anyone working only on the
+plugin. In `.env`:
+
+```bash
+COMPOSE_PROFILES=arclight
+ARCLIGHT_SOLR_CONF=/Users/you/code/arclight/solr/conf
+```
+
+`COMPOSE_PROFILES` is read by Docker Compose itself, so every script under
+`scripts/` picks the service up with no extra flags.
+
+`ARCLIGHT_SOLR_CONF` should point at **your own Arclight checkout**.
+`arclight:install` copies the gem's configset into the app as `solr/conf`, and
+yours is the only copy guaranteed to match the Arclight and Arcuit you are
+actually running. Leave it empty and the setup script downloads Arclight's
+stock configset instead — fine for indexing against, but without any Arcuit
+changes.
+
+Then:
+
+```bash
+./scripts/up.sh          # brings up Arclight's Solr along with everything else
+```
+
+or, if the rest of the stack is already running:
+
+```bash
+./scripts/arclight-solr.sh
+```
+
+You get a `blacklight-core` core at <http://localhost:8984/solr/blacklight-core>.
+
+### Pointing Arcflow and Arclight at it
+
+Both default to port **8983**, which here is ArchivesSpace's Solr, so both need
+telling.
+
+Arclight, on your laptop:
+
+```bash
+SOLR_URL=http://localhost:8984/solr/blacklight-core bin/dev
+```
+
+Arcflow, also on your laptop — and note it wants both Solrs, ArchivesSpace's as
+well as Arclight's:
+
+```bash
+python -m arcflow.main \
+  --arclight-dir /path/to/arclight \
+  --solr-url http://localhost:8984/solr/blacklight-core \
+  --aspace-solr-url http://localhost:8983/solr/archivesspace
+```
+
+Arcflow reaches the ArchivesSpace API through `.archivessnake.yml`, whose
+example already points at `http://localhost:8089` — the backend port this stack
+publishes — so that file usually needs nothing but a username and password.
+
+If you would rather not pass the ports every time, swap them instead: set
+`ARCLIGHT_SOLR_PORT=8983` and `SOLR_PORT=8984` in `.env`. Nothing here cares
+which way round they are; ArchivesSpace reaches its own Solr over the Docker
+network, not through the published port.
+
+### The `is_creator` field
+
+Arcflow marks its creator documents with a boolean `is_creator`, so they can be
+told apart from collections. That is not an Arclight field, and it does not
+match any of the dynamic field patterns (`*_ssim`, `*_tesim` and so on), so
+indexing creators into a stock Arclight core fails with:
+
+```
+ERROR: [doc=creator_corporate_entities_584] unknown field 'is_creator'
+```
+
+`scripts/arclight-solr.sh` adds it for you, to its own copy of the configset —
+your Arclight checkout is never written to.
+
+**Arcflow's README tells you to add this through Solr's Schema API. That cannot
+work.** Arclight's `solrconfig.xml` sets `<schemaFactory
+class="ClassicIndexSchemaFactory"/>`, which makes the schema read-only at
+runtime, and the `curl` in those instructions gets a 400 back. The field has to
+be in `schema.xml` before the core is created, which is what this script does.
+Worth knowing if you ever set one of these up by hand.
+
+Everything else Arcflow indexes — `entity_type_ssi`, `bioghist_tesim`,
+`creator_of_collection__collection_ids_ssim`, `record_group_ssim` and the rest
+— uses Arclight's dynamic field suffixes and needs no schema change.
+
+### Changing the configset
+
+`solr-precreate` only does anything when the core does not yet exist, so
+editing the configset has no effect on a core that is already there. Rebuild
+it:
+
+```bash
+./scripts/arclight-solr.sh --reset
+```
+
+That throws the index away. You are testing an ETL, so rebuilding it is the
+point — but it is not reversible, and it is the command to reach for whenever
+the core looks stale or will not load.
+
+Other things the script does:
+
+```bash
+./scripts/arclight-solr.sh --status                  # up? how many documents?
+./scripts/arclight-solr.sh --conf /some/other/conf   # one-off configset
+./scripts/arclight-solr.sh --prepare-only            # write the configset, do not start
+```
+
+To empty the index without touching the schema, ask Solr directly:
+
+```bash
+curl 'http://localhost:8984/solr/blacklight-core/update?commit=true' \
+  -H 'Content-Type: text/xml' --data-binary '<delete><query>*:*</query></delete>'
+```
+
+### Starting from a copied index
+
+Usually you do not want one: the reason to run this is to watch Arcflow build
+the index. But if you have pulled a core down from a server, put its `data`
+directory at `docker/data/arclight-solr/index/` and the script will restore it
+the same way `restore-solr.sh` handles the ArchivesSpace one. On the server the
+core lives at `/var/solr/data/blacklight-core`.
+
+It refuses to restore over a core that already holds documents — use `--reset`
+if that is really what you want.
+
+### Solr versions
+
+`ARCLIGHT_SOLR_VERSION` defaults to **9.7.0**, which is what Arclight itself
+develops against (its `.solr_wrapper`). Arclight 1.6.x's configset declares
+`luceneMatchVersion 8.2.0` and carries `<lib>` paths for both Solr 8 (`contrib/`)
+and Solr 9 (`modules/`), so it loads under either; set `8.11.3` if you need to
+match Arcflow's own test stack, which pins that.
+
+On Solr 9 the startup log carries a warning about a missing
+`contrib/analysis-extras/lucene-libs`. That is the Solr 8 path and is harmless
+— the ICU analysers Arclight's `text` and `text_en` field types depend on come
+from `modules/` and do load. Do not "fix" it by deleting the `<lib>` lines; the
+schema will not work without those analysers.
+
+Unlike the ArchivesSpace images, the stock `solr` image is published for arm64,
+so this one service runs natively on Apple Silicon rather than under emulation.
+That matters here more than anywhere else in the stack — indexing thousands of
+records is exactly the sustained work emulation punishes.
 
 ---
 
