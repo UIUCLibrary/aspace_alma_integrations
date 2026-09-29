@@ -47,6 +47,13 @@ fi
 # shellcheck disable=SC1091
 set -a; source .env; set +a
 
+# Compose cannot make a bind mount conditional, so Solr always mounts
+# data/arclight-solr/conf. Create it before anything starts a container: left
+# to Docker it is created as an empty ROOT-owned directory, which then cannot
+# be written or removed without sudo. This must stay above every
+# `docker compose up`/`run` in this script.
+mkdir -p data/arclight-solr/conf
+
 if ! docker info >/dev/null 2>&1; then
   echo "error: Docker is not running." >&2
   exit 1
@@ -272,11 +279,6 @@ echo "    done"
 # The data is now committed to this version, so record it. The check at the
 # top of this script compares against it on the next run.
 echo "${ASPACE_VERSION}" > .stack-version
-
-# Compose cannot make a bind mount conditional, so this path is always mounted
-# into Solr. Create it here so that it belongs to you: left to Docker it would
-# be created as an empty root-owned directory the first time the stack starts.
-mkdir -p data/arclight-solr/conf
 
 # The Arclight core's configset is bind-mounted from ./data, which has to
 # exist and be populated before the Solr container starts -- the core is

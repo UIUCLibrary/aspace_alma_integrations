@@ -18,14 +18,13 @@
 # created inside the container at startup by docker/solr/arclight-core.sh,
 # which also adds the is_creator field Arcflow needs.
 #
-# The configset comes from your own Arclight checkout, which is the only copy
-# guaranteed to match the Arclight and Arcuit you are actually running. Point
-# ARCLIGHT_SOLR_CONF in .env at it:
+# The configset comes from the Arclight gem, which `arclight:install` copies
+# into the app as solr/conf. Arcuit ships no Solr configuration, so the
+# downloaded copy of Arclight v1.6.0's configset is the same thing your app
+# has. Point ARCLIGHT_SOLR_CONF in .env at your own checkout if you have local
+# schema changes:
 #
 #   ARCLIGHT_SOLR_CONF=/Users/you/code/arclight/solr/conf
-#
-# Without that this falls back to downloading Arclight's stock configset, which
-# is enough to index against but will not have any Arcuit customisations.
 #
 # See README.md, "Indexing into Arclight with Arcflow", for the whole workflow.
 
@@ -34,9 +33,9 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 # Arclight release to fall back to when there is no local checkout to copy
-# from. Pinned rather than tracking main so that two people running this get
-# the same schema.
-ARCLIGHT_FALLBACK_REF="${ARCLIGHT_FALLBACK_REF:-v1.6.3}"
+# from. v1.6.0 is what Arcuit pins (`gem 'arclight', '= 1.6.0'` in its
+# template.rb), so the downloaded configset matches what UIUC actually run.
+ARCLIGHT_FALLBACK_REF="${ARCLIGHT_FALLBACK_REF:-v1.6.0}"
 
 CONF_ARG=""
 RESET=false
@@ -127,8 +126,9 @@ elif [[ -f "${CONF_DEST}/schema.xml" ]]; then
 
 else
   echo "==> No Arclight checkout configured, so downloading Arclight ${ARCLIGHT_FALLBACK_REF}'s configset"
-  echo "    Set ARCLIGHT_SOLR_CONF in .env to use your own instead -- yours is"
-  echo "    the one that carries any Arcuit changes."
+  echo "    That is the same configset your Arclight app has -- Arcuit ships"
+  echo "    no Solr config of its own. Set ARCLIGHT_SOLR_CONF in .env to use"
+  echo "    your checkout instead if you have local schema changes."
 
   TARBALL="https://codeload.github.com/projectblacklight/arclight/tar.gz/refs/tags/${ARCLIGHT_FALLBACK_REF}"
   TMP=$(mktemp -d)

@@ -25,8 +25,8 @@ password.
 ### A word about Apple Silicon
 
 ArchivesSpace publishes **amd64 images only** — there is no arm64 build of
-either `archivesspace/archivesspace` or `archivesspace/solr`. On your M2 this
-runs under Rosetta emulation.
+`archivesspace/archivesspace`. On your M2 the application runs under Rosetta
+emulation.
 
 It works, but:
 
@@ -43,9 +43,13 @@ default QEMU path.
 stack behaves identically on your laptop and on an amd64 CI runner. That is the
 whole point when you are trying to reproduce a bug someone else is seeing.
 
-**The database is the exception, and deliberately so.** `mysql` publishes a
-native `linux/arm64v8` image, so `DB_PLATFORM` is left empty and MySQL runs at
-full speed on Apple Silicon while only ArchivesSpace and Solr are emulated.
+**The database and Solr are the exceptions, and deliberately so.** `mysql`
+publishes a native `linux/arm64v8` image, so `DB_PLATFORM` is left empty and
+MySQL runs at full speed. Solr is built here from the stock, multi-architecture
+`solr` image rather than pulled from `archivesspace/solr`, so it too runs
+natively — see [Why Solr is built rather than
+pulled](#why-solr-is-built-rather-than-pulled). Only the application itself is
+emulated.
 Emulating the database as well made restoring a dump several times slower for no
 benefit — importing is precisely the CPU- and IO-heavy work that emulation
 punishes hardest, and unlike the application there is no compatibility reason to
@@ -464,15 +468,21 @@ plugin. In `.env`:
 
 ```bash
 ARCLIGHT_SOLR_ENABLED=true
-ARCLIGHT_SOLR_CONF=/Users/you/code/arclight/solr/conf
 ```
 
-`ARCLIGHT_SOLR_CONF` should point at **your own Arclight checkout**.
-`arclight:install` copies the gem's configset into the app as `solr/conf`, and
-yours is the only copy guaranteed to match the Arclight and Arcuit you are
-actually running. Leave it empty and the setup script downloads Arclight's
-stock configset instead — fine for indexing against, but without any Arcuit
-changes.
+That is usually all you need. The configset comes from the **Arclight gem** —
+`arclight:install` copies it into the app as `solr/conf` — and **Arcuit ships
+no Solr configuration at all**, so the copy the setup script downloads is the
+same thing your app has rather than a degraded substitute. It is pinned to
+Arclight **v1.6.0**, which is what Arcuit pins (`gem 'arclight', '= 1.6.0'` in
+its `template.rb`).
+
+Set `ARCLIGHT_SOLR_CONF` if you have local schema changes, or just want to be
+certain you are testing the exact files you run:
+
+```bash
+ARCLIGHT_SOLR_CONF=/Users/you/code/arclight/solr/conf
+```
 
 Then:
 
@@ -586,13 +596,46 @@ core lives at `/var/solr/data/blacklight-core`.
 It refuses to restore over a core that already holds documents — use `--reset`
 if that is really what you want.
 
-### Solr versions
+### Why Solr is built rather than pulled
 
-The Solr here is whatever the `archivesspace/solr:${ASPACE_VERSION}` image
-ships — **9.4.1** for ArchivesSpace 4.1.1 — rather than a version pinned for
-Arclight. Arclight 1.6.x's configset declares `luceneMatchVersion 8.2.0` and
-carries `<lib>` paths for both Solr 8 (`contrib/`) and Solr 9 (`modules/`), so
-it loads there happily.
+`docker/solr/Dockerfile` builds Solr from the stock `solr` image instead of
+using `archivesspace/solr`. That sounds like a liberty, but it is very nearly
+the same file ArchivesSpace publish. Theirs, in full:
+
+```dockerfile
+FROM solr:9.4.1
+ENV SOLR_MODULES=analysis-extras
+COPY * $ARCHIVESSPACE_CONFIGSET_PATH/
+```
+
+Their image is stock Solr plus one environment variable and about 40kB of XML.
+Ours fetches that same XML from the `v${ASPACE_VERSION}` tag of the
+ArchivesSpace repository, where it is published and byte-identical to the
+copies baked into their image.
+
+The reason to bother: `archivesspace/solr` is published for **amd64 only**,
+while the stock `solr` image is multi-architecture. Building it means Solr runs
+natively on Apple Silicon rather than under emulation — and indexing thousands
+of records through Arcflow is exactly the sustained, CPU-heavy work that
+emulation punishes.
+
+The configset must stay byte-exact. ArchivesSpace fetches `schema.xml` back out
+of the running core, SHA-256s it, and compares against the copy bundled in the
+application, refusing to start on a mismatch
+(`AppConfig[:solr_verify_checksums]`). Editing the fetched schema — even
+whitespace — stops the backend booting. Pinning the download to the matching
+version tag is what keeps that safe.
+
+`SOLR_VERSION` in `.env` should track what ArchivesSpace's own
+`solr/Dockerfile` uses for the release you are running: **9.4.1** for 4.1.1.
+The image is tagged with both versions, so changing either in `.env` makes
+Compose rebuild rather than silently reuse a stale configset.
+
+### Solr versions and Arclight
+
+Arclight 1.6.x's configset declares `luceneMatchVersion 8.2.0` and carries
+`<lib>` paths for both Solr 8 (`contrib/`) and Solr 9 (`modules/`), so it loads
+happily on the 9.4.1 that ArchivesSpace pins.
 
 The startup log carries a warning about a missing
 `contrib/analysis-extras/lucene-libs`. That is the Solr 8 path and is harmless
@@ -600,11 +643,13 @@ The startup log carries a warning about a missing
 from `modules/`, which this image has, and they do load. Do not "fix" it by
 deleting the `<lib>` lines; the schema will not work without those analysers.
 
-One consequence of sharing ArchivesSpace's image: like the rest of the stack it
-is amd64-only, so on Apple Silicon it is emulated. `SOLR_JAVA_MEM` is set a
-little higher than ArchivesSpace alone needs, because one JVM now serves both
-cores; raise it further if Arcflow runs are slow or Solr falls over partway
-through a large repository.
+ArchivesSpace's core needs those same analysers, which is what
+`SOLR_MODULES=analysis-extras` in the Dockerfile is for: the jars ship in the
+stock image but are not on the classpath until the module is named.
+
+`SOLR_JAVA_MEM` is set a little higher than ArchivesSpace alone needs, because
+one JVM now serves both cores; raise it further if Arcflow runs are slow or
+Solr falls over partway through a large repository.
 
 ---
 
