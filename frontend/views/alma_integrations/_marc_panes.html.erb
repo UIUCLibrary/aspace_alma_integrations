@@ -1,0 +1,128 @@
+<%#
+  The two MARC records, side by side.
+
+  Shared by the bib comparison screen and by the links out of an audit report,
+  so there is only one place where "here is what ArchivesSpace would send and
+  here is what Alma holds" is rendered.
+
+  Two views of the same pair are rendered up front and the toggle switches
+  between them, so turning highlighting on costs no round trip and never
+  re-reads the records:
+
+    plain        the XML exactly as it is sent to Alma, which is what people
+                 check character by character. This is the default, and it is
+                 byte for byte what this screen has always shown.
+    differences  the same two records as MARC fields, lined up one opposite the
+                 other, with losses, changes and additions marked.
+
+  Locals:
+    aspace_marc            XML of the record ArchivesSpace would send (required)
+    alma_marc              XML of the record currently in Alma (may be nil)
+    alma_error             message to show when there is no Alma record
+    show_diff              start on the differences view (default false)
+    aspace_footer_partial  partial rendered under the ArchivesSpace column
+    aspace_footer_locals   locals for that partial
+%>
+<%
+  show_diff = local_assigns.fetch(:show_diff, false)
+  alma_error = local_assigns.fetch(:alma_error, nil)
+  footer_partial = local_assigns.fetch(:aspace_footer_partial, nil)
+  footer_locals = local_assigns.fetch(:aspace_footer_locals, {})
+
+  alignment = alma_marc_alignment(alma_marc, aspace_marc)
+  counts = alma_marc_diff_counts(alignment)
+  differences = counts[:lost] + counts[:changed] + counts[:added]
+%>
+
+<div class="alma-marc-compare <%= 'alma-diff-on' if alignment && show_diff %>" data-alma-marc-compare>
+
+  <% if alignment %>
+    <div class="alma-diff-controls">
+      <button type="button" class="btn btn-default btn-sm alma-diff-toggle" data-alma-diff-toggle
+              aria-pressed="<%= show_diff ? 'true' : 'false' %>"
+              aria-controls="alma-marc-views">
+        <%= I18n.t('plugins.alma_integrations.marc_diff.toggle') %>
+      </button>
+
+      <label class="alma-diff-filter">
+        <input type="checkbox" data-alma-diff-filter>
+        <%= I18n.t('plugins.alma_integrations.marc_diff.differences_only') %>
+      </label>
+
+      <span class="alma-diff-summary">
+        <% if differences.zero? %>
+          <%= I18n.t('plugins.alma_integrations.marc_diff.no_differences') %>
+        <% else %>
+          <span class="alma-diff-key alma-diff-lost"><%= I18n.t('plugins.alma_integrations.marc_diff.key_lost', :count => counts[:lost]) %></span>
+          <span class="alma-diff-key alma-diff-changed"><%= I18n.t('plugins.alma_integrations.marc_diff.key_changed', :count => counts[:changed]) %></span>
+          <span class="alma-diff-key alma-diff-added"><%= I18n.t('plugins.alma_integrations.marc_diff.key_added', :count => counts[:added]) %></span>
+        <% end %>
+      </span>
+    </div>
+  <% end %>
+
+  <div id="alma-marc-views">
+    <%# ---- Plain XML, the long standing view ---- %>
+    <div class="row alma-marc-plain">
+      <div class="col-md-6">
+        <h4><%= I18n.t("plugins.alma_integrations.marc_headings.aspace") %></h4>
+        <div class="subrecord-form-fields notes-readonly" aria-describedby="aspace-marc-note">
+          <div class="tabbable">
+            <div class="tab-content">
+              <% if aspace_marc %>
+                <pre class="pre-scrollable"><code><%= aspace_marc %></code></pre>
+              <% else %>
+                <p><%= I18n.t("plugins.alma_integrations.errors.no_marc") %></p>
+              <% end %>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-6">
+        <h4><%= I18n.t("plugins.alma_integrations.marc_headings.alma") %></h4>
+        <div class="subrecord-form-fields notes-readonly">
+          <div class="tabbable">
+            <div class="tab-content">
+              <% if alma_marc %>
+                <pre class="pre-scrollable"><code><%= alma_marc %></code></pre>
+              <% else %>
+                <p><%= alma_error %></p>
+              <% end %>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <%# ---- The same pair, lined up and marked ---- %>
+    <% if alignment %>
+      <div class="alma-marc-diff">
+        <div class="alma-diff-grid">
+          <div class="alma-diff-pair alma-diff-headings">
+            <div class="alma-diff-cell"><h4><%= I18n.t("plugins.alma_integrations.marc_headings.aspace") %></h4></div>
+            <div class="alma-diff-cell"><h4><%= I18n.t("plugins.alma_integrations.marc_headings.alma") %></h4></div>
+          </div>
+
+          <% alignment['rows'].each do |row| %>
+            <div class="alma-diff-pair alma-diff-pair-<%= row['status'] %><%= ' alma-diff-pair-ignored' if row['ignored'] || row['enrichment'] %>">
+              <div class="alma-diff-cell"><%= alma_marc_field(row, 'outgoing') %></div>
+              <div class="alma-diff-cell"><%= alma_marc_field(row, 'alma') %></div>
+            </div>
+          <% end %>
+        </div>
+
+        <p class="help-block alma-diff-footnote">
+          <%= I18n.t('plugins.alma_integrations.marc_diff.footnote') %>
+        </p>
+      </div>
+    <% end %>
+  </div>
+
+  <% if footer_partial %>
+    <div class="row">
+      <div class="col-md-6">
+        <%= render :partial => footer_partial, :locals => footer_locals %>
+      </div>
+    </div>
+  <% end %>
+</div>

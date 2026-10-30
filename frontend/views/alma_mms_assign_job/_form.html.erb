@@ -1,0 +1,35 @@
+<%# Form for the job that writes Alma MMS IDs into ArchivesSpace resources.
+
+  Every input must be named job[...] for ArchivesSpace to pass it through to
+  the job runner, which is what the label_and_* helpers do.
+%>
+
+<div class="alma-job-intro">
+  <p><%= t('alma_mms_assign_job.intro') %></p>
+  <p class="alma-job-warning"><%= t('alma_mms_assign_job.warning') %></p>
+</div>
+
+<div class="form-group">
+  <label class="col-sm-2 control-label" for="alma_mms_assign_files">
+    <%= t('alma_mms_assign_job.upload') %>
+  </label>
+  <div class="col-sm-8">
+    <input id="alma_mms_assign_files" type="file" name="files[]" multiple="multiple" accept=".txt,.csv,.tsv" />
+    <p class="help-block"><%= t('alma_mms_assign_job.upload_help') %></p>
+  </div>
+</div>
+
+<%= form.label_and_textarea "pairs", :field_opts => {:rows => 6, :placeholder => t('alma_mms_assign_job.pairs_placeholder')} %>
+
+<%= form.label_and_select "collection_id_field",
+                          [[t('alma_mms_assign_job.collection_id_field_ead_id'), 'ead_id'],
+                           [t('alma_mms_assign_job.collection_id_field_auto'), 'auto'],
+                           [t('alma_mms_assign_job.collection_id_field_identifier'), 'identifier']] %>
+
+<%= form.label_and_textfield "mms_column", :field_opts => {:placeholder => t('alma_mms_assign_job.column_placeholder')} %>
+
+<%= form.label_and_textfield "collection_column", :field_opts => {:placeholder => t('alma_mms_assign_job.column_placeholder')} %>
+
+<%= form.label_and_boolean "dry_run", {}, true %>
+
+<%= form.label_and_boolean "overwrite", {}, false %>

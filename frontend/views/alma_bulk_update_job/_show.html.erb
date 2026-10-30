@@ -1,0 +1,30 @@
+<% summary = (job.job['summary'] rescue nil) || {} %>
+<% counts = summary['counts'] || {} %>
+
+<div class="alma-update-show">
+  <% if summary.empty? %>
+    <p><%= t('alma_bulk_update_job.not_finished') %></p>
+  <% else %>
+    <% if summary['dry_run'] %>
+      <div class="alert alert-info">
+        <%= t('alma_bulk_update_job.was_dry_run') %>
+      </div>
+    <% end %>
+
+    <ul>
+      <li><%= t('alma_bulk_update_job.stat_updated', :count => counts['updated'].to_i) %></li>
+      <% if summary['dry_run'] %>
+        <li><%= t('alma_bulk_update_job.stat_would_update', :count => counts['would_update'].to_i) %></li>
+      <% end %>
+      <li><%= t('alma_bulk_update_job.stat_skipped', :count => counts['skipped'].to_i) %></li>
+      <li><%= t('alma_bulk_update_job.stat_failed', :count => counts['failed'].to_i) %></li>
+    </ul>
+
+    <% if summary['audit_job_id'] %>
+      <p>
+        <%= link_to t('alma_bulk_update_job.view_audit'),
+                    url_for(:controller => :alma_audit_reports, :action => :show, :id => summary['audit_job_id']) %>
+      </p>
+    <% end %>
+  <% end %>
+</div>
