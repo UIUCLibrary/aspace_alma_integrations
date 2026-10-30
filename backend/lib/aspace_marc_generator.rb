@@ -37,10 +37,17 @@ module AlmaIntegrations
     # Returns a MarcPreserver::Result so callers can surface the warnings -- a
     # record missing an 008, for instance, is worth telling the user about
     # rather than silently working around.
-    def outgoing(resource_id, alma_record, include_unpublished: nil)
+    #
+    # `version_stamp` is Alma's 005 from the record being replaced. Supplying it
+    # is what makes Alma's own `stale_version_check` able to reject a record
+    # that changed between the read and the write; see
+    # MarcPreserver#stamp_version. The audit leaves it nil.
+    def outgoing(resource_id, alma_record, include_unpublished: nil, version_stamp: nil)
       aspace_marc = generate(resource_id, :include_unpublished => include_unpublished)
 
-      @preserver.apply(aspace_marc, alma_record)
+      result = @preserver.apply(aspace_marc, alma_record)
+      @preserver.stamp_version(result.record, version_stamp) unless version_stamp.nil?
+      result
     end
 
     private

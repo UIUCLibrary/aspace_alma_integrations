@@ -42,8 +42,10 @@
         'default' => false
       },
 
-      # Carries Alma's 005 from the audit snapshot on the outgoing record so
-      # Alma itself rejects anything that changed in between.
+      # Stamps the outgoing record with Alma's own 005, read moments earlier,
+      # and asks Alma to reject the write if its copy has moved on since. Also
+      # what makes it safe to read the records in batches rather than one at a
+      # time, which roughly halves the API calls a run costs.
       'stale_version_check' => {
         'type' => 'boolean',
         'default' => true

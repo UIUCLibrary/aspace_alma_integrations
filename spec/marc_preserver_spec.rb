@@ -267,4 +267,56 @@ RSpec.describe AlmaIntegrations::MarcPreserver do
       expect(result.to_xml).to include('New Alma record title')
     end
   end
+
+  describe '#stamp_version' do
+    def stamped(value, aspace: marc_node(controlfields: { '008' => fixed_008 },
+                                         datafields: [['245', '1', '0', [['a', 'Title']]]]))
+      preserver = described_class.new
+      result = preserver.apply(aspace, nil)
+      [preserver.stamp_version(result.record, value), result]
+    end
+
+    it 'adds Alma’s 005 so the record we send has a version for Alma to check against' do
+      written, result = stamped('20260101120000.0')
+
+      expect(written).to be(true)
+      expect(control_value(result, '005')).to eq('20260101120000.0')
+    end
+
+    it 'keeps the record in tag order so the stamp sits where a 005 belongs' do
+      _written, result = stamped(
+        '20260101120000.0',
+        aspace: marc_node(controlfields: { '001' => '99123', '008' => fixed_008 },
+                          datafields: [['245', '1', '0', [['a', 'Title']]]])
+      )
+
+      expect(field_tags(result)).to eq(%w[001 005 008 245])
+    end
+
+    it 'replaces an existing 005 rather than leaving the record with two of them' do
+      preserver = described_class.new
+      result = preserver.apply(
+        marc_node(controlfields: { '005' => '19990101000000.0', '008' => fixed_008 }),
+        nil
+      )
+
+      preserver.stamp_version(result.record, '20260101120000.0')
+
+      expect(field_tags(result)).to eq(%w[005 008])
+      expect(control_value(result, '005')).to eq('20260101120000.0')
+    end
+
+    it 'writes nothing when Alma gave us no 005 to carry, so no invented version is sent' do
+      ['', '   ', nil].each do |value|
+        written, result = stamped(value)
+
+        expect(written).to be(false)
+        expect(field_tags(result)).to eq(%w[008 245])
+      end
+    end
+
+    it 'does nothing when there is no record to stamp' do
+      expect(described_class.new.stamp_version(nil, '20260101120000.0')).to be(false)
+    end
+  end
 end

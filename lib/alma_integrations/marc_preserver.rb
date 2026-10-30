@@ -59,6 +59,37 @@ module AlmaIntegrations
       Result.new(aspace, warnings, counts, date_preserved)
     end
 
+    # Stamps a prepared record with Alma's own 005, the Date and Time of Latest
+    # Transaction.
+    #
+    # ArchivesSpace's MARC exporter emits a leader and an 008 and no other
+    # control fields, so a record prepared for Alma carries no 005 of its own.
+    # Alma's `stale_version_check=true` works by comparing the 005 in the
+    # submitted record against the one it holds, so without this the check we
+    # ask Alma to perform has nothing to compare and cannot reject anything.
+    #
+    # Only the update path stamps. The audit deliberately does not: 005 is one
+    # of the tags the diff ignores precisely because it changes on every save,
+    # and adding one to the audit's outgoing record would report a phantom
+    # addition on every record in the report.
+    #
+    # Returns true when a stamp was written.
+    def stamp_version(record, value)
+      return false if record.nil?
+
+      value = value.to_s.strip
+      return false if value.empty?
+
+      record.xpath(field_xpath('005')).each(&:remove)
+
+      field = Nokogiri::XML::Node.new('controlfield', record.document)
+      field['tag'] = '005'
+      field.content = value
+
+      insert_in_tag_order(record, field, '005')
+      true
+    end
+
     private
 
     # Every XPath below is written against un-namespaced element names, so the

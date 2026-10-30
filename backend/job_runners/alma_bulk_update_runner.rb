@@ -207,42 +207,130 @@ class AlmaBulkUpdateRunner < JobRunner
     log_heading(dry_run? ? 'Checking records' : 'Updating Alma')
 
     generator = AlmaIntegrations::AspaceMarcGenerator.new(:settings => settings)
-    total = plan.length
-    done = 0
+    @total = plan.length
+    @done = 0
+
+    # Records that need no Alma read at all are settled first. They cost
+    # nothing, and taking them out of the way lets every batched fetch carry a
+    # full hundred records rather than however many happen to survive within
+    # one slice of the plan.
+    fetchable = []
 
     plan.each do |entry|
       check_canceled!
-      done += 1
+      reason = skip_reason(entry)
 
-      begin
-        process(entry, generator)
-      rescue AlmaIntegrations::DailyThresholdError, AlmaIntegrations::QuotaFloorError
-        raise
-      rescue AlmaIntegrations::JobSupport::CanceledError
-        raise
-      rescue StandardError => e
-        record_result(entry['input'], entry['mms_id'], 'failed', "#{e.class}: #{e.message}",
-                      :resource_uri => entry['resource_uri'])
+      if reason
+        guard(entry) do
+          record_result(entry['input'], entry['mms_id'], 'skipped', reason,
+                        :resource_uri => entry['resource_uri'])
+        end
+        advance
+      else
+        fetchable << entry
       end
+    end
 
-      report_progress(done, total)
+    return if fetchable.empty?
+
+    describe_read_strategy(fetchable.length)
+
+    if batch_reads?
+      apply_batched(fetchable, generator)
+    else
+      fetchable.each { |entry| apply_one(entry, generator) }
     end
   end
 
-  def process(entry, generator)
-    mms_id = entry['mms_id']
-    reason = skip_reason(entry)
+  # Reading in batches turns one Alma call per record into one per hundred,
+  # which is the difference between 2 calls per record for a run and a little
+  # over 1.
+  #
+  # It widens the gap between reading a record and writing it: the last record
+  # in a batch is written up to a hundred updates after it was read. That gap is
+  # safe only because the outgoing record carries Alma's own 005 and is sent
+  # with stale_version_check, so Alma itself refuses anything that moved in the
+  # meantime. With that check turned off nothing would catch an edit made inside
+  # the window, so the per-record read is kept and the narrower gap with it.
+  def batch_reads?
+    return false unless settings[:stale_version_check]
 
-    if reason
-      record_result(entry['input'], mms_id, 'skipped', reason, :resource_uri => entry['resource_uri'])
-      return
+    settings[:bulk_fetch_size].to_i > 1
+  end
+
+  def describe_read_strategy(count)
+    if batch_reads?
+      size = [settings[:bulk_fetch_size].to_i, AlmaIntegrations::AlmaClient::MAX_BULK_FETCH].min
+      calls = (count.to_f / size).ceil
+      log("Reading #{count} record(s) from Alma in batches of up to #{size}: " \
+          "#{calls} read call(s) rather than #{count}.")
+    else
+      log("Reading #{count} record(s) from Alma one at a time, because the Alma version " \
+          'check is off and a batched read would widen the gap between reading a record ' \
+          'and writing it.')
+    end
+  end
+
+  def apply_batched(entries, generator)
+    # Grouped rather than mapped: an unaudited run can name the same MMS ID
+    # twice, and both entries still have to be answered. Grouping also means the
+    # record is only fetched once however many times it was named.
+    by_mms = Hash.new { |hash, key| hash[key] = [] }
+    entries.each { |entry| by_mms[entry['mms_id'].to_s] << entry }
+
+    alma_client.each_bib(by_mms.keys) do |mms_id, record, error|
+      check_canceled!
+
+      by_mms[mms_id.to_s].each do |entry|
+        guard(entry) do
+          if error
+            record_result(entry['input'], mms_id, 'failed',
+                          "Could not read the record from Alma: #{error}",
+                          :resource_uri => entry['resource_uri'])
+          elsif record.nil?
+            record_result(entry['input'], mms_id, 'failed', 'Alma returned no MARC record',
+                          :resource_uri => entry['resource_uri'])
+          else
+            process(entry, record, generator)
+          end
+        end
+
+        advance
+      end
+    end
+  end
+
+  def apply_one(entry, generator)
+    check_canceled!
+
+    guard(entry) do
+      current = fetch_current(entry)
+      process(entry, current, generator) unless current.nil?
     end
 
-    # Fetch the record as it stands right now. This is both the failsafe
-    # snapshot and the source of the fields we preserve.
-    current = fetch_current(mms_id)
-    return if current.nil?
+    advance
+  end
 
+  # One bad record must not take down a run of several thousand, but a run that
+  # has exhausted the institution's allowance, or been cancelled, must stop.
+  def guard(entry)
+    yield
+  rescue AlmaIntegrations::DailyThresholdError, AlmaIntegrations::QuotaFloorError
+    raise
+  rescue AlmaIntegrations::JobSupport::CanceledError
+    raise
+  rescue StandardError => e
+    record_result(entry['input'], entry['mms_id'], 'failed', "#{e.class}: #{e.message}",
+                  :resource_uri => entry['resource_uri'])
+  end
+
+  def advance
+    @done += 1
+    report_progress(@done, @total)
+  end
+
+  def process(entry, current, generator)
+    mms_id = entry['mms_id']
     alma_record = AlmaIntegrations::MarcRecord.parse(current)
 
     if stale?(entry, alma_record)
@@ -277,7 +365,8 @@ class AlmaBulkUpdateRunner < JobRunner
     )
 
     result = generator.outgoing(entry['resource_id'], current,
-                                :include_unpublished => settings[:include_unpublished])
+                                :include_unpublished => settings[:include_unpublished],
+                                :version_stamp => version_stamp(alma_record))
 
     if dry_run?
       record_result(entry['input'], mms_id, 'would_update', nil,
@@ -287,6 +376,15 @@ class AlmaBulkUpdateRunner < JobRunner
     end
 
     push(entry, mms_id, result)
+  end
+
+  # Alma's own 005 from the record we are about to replace, so that the PUT's
+  # stale_version_check has something to compare. Nil when the check is off, so
+  # the outgoing record is left exactly as ArchivesSpace produced it.
+  def version_stamp(alma_record)
+    return nil unless settings[:stale_version_check]
+
+    alma_record.controlfield_value('005')
   end
 
   def skip_reason(entry)
@@ -301,11 +399,14 @@ class AlmaBulkUpdateRunner < JobRunner
     nil
   end
 
-  def fetch_current(mms_id)
+  def fetch_current(entry)
+    mms_id = entry['mms_id']
     response = alma_client.get("/bibs/#{mms_id}")
 
     unless response.success?
-      record_result(nil, mms_id, 'failed', "Could not read the record from Alma: #{response.error_message}")
+      record_result(entry['input'], mms_id, 'failed',
+                    "Could not read the record from Alma: #{response.error_message}",
+                    :resource_uri => entry['resource_uri'])
       return nil
     end
 
@@ -314,7 +415,8 @@ class AlmaBulkUpdateRunner < JobRunner
     record = document.at_xpath('//record')
 
     if record.nil?
-      record_result(nil, mms_id, 'failed', 'Alma returned no MARC record')
+      record_result(entry['input'], mms_id, 'failed', 'Alma returned no MARC record',
+                    :resource_uri => entry['resource_uri'])
       return nil
     end
 
@@ -351,8 +453,12 @@ class AlmaBulkUpdateRunner < JobRunner
 
   def push(entry, mms_id, preserve_result)
     query = {}
-    # Letting Alma enforce the version check is better than doing it ourselves:
-    # it closes the gap between our read and our write.
+    # Letting Alma enforce the version check closes the gap between our read and
+    # our write, which is what makes reading in batches safe. It only works
+    # because the outgoing record was stamped with Alma's own 005 on the way
+    # through; ArchivesSpace's MARC export has no 005 of its own, so without
+    # that stamp Alma would have nothing to compare and the check would be
+    # inert.
     query['stale_version_check'] = 'true' if settings[:stale_version_check]
 
     response = alma_client.put("/bibs/#{mms_id}", preserve_result.to_xml, query)
