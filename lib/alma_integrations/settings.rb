@@ -15,9 +15,20 @@ module AlmaIntegrations
       :api_key                     => nil,
 
       # --- Rate limiting ---------------------------------------------------
-      # Alma's documented governance threshold is 25 requests/second per
-      # institution (not per API key), shared with every other integration on
-      # campus. We stay well under it by default.
+      # Which Alma instance the API key points at. The hostname is the same for
+      # both, so this cannot be detected: the key alone decides, and only the
+      # person who pasted it in knows which one it is.
+      #
+      # It matters because sandbox is governed far more tightly than production.
+      # A run tuned for production spends its sandbox calls on 429s, and a
+      # rejected request is charged like any other, so a mistuned test run
+      # quietly eats the allowance it was meant to be protecting.
+      :environment                 => 'production',
+
+      # Alma's governance threshold is per institution rather than per API key,
+      # so it is shared with every other integration on campus. We stay well
+      # under the production ceiling by default; sandbox runs are clamped to
+      # SANDBOX_REQUESTS_PER_SECOND regardless of what is configured here.
       :requests_per_second         => 19,
       :max_retries                 => 5,
       :retry_base_delay            => 1.0,
@@ -69,9 +80,30 @@ module AlmaIntegrations
       # nil (the default) keeps them indefinitely.
       :report_retention_days       => nil,
 
+      # Copy each Alma MARC record into the plan file as well as the report, so
+      # that a bulk update run from this audit can skip reading Alma a second
+      # time and cost one API call per record instead of two.
+      #
+      # Off by default because it makes the plan file large -- the plan exists
+      # precisely so the updater never has to hold a multi-megabyte document in
+      # memory -- and because it is only any use to a run that opts in to
+      # reusing it.
+      :plan_includes_alma_marc     => false,
+
       # --- Update behaviour -------------------------------------------------
       # Refuse to overwrite an Alma record that changed after it was audited.
       :stale_version_check         => true,
+      # Reuse the Alma MARC the audit already stored in the plan rather than
+      # reading each record from Alma again, taking the update from two API
+      # calls per record to one.
+      #
+      # Opt-in, because it trades a snapshot taken moments before the write for
+      # one taken when the audit ran. What makes that trade survivable rather
+      # than reckless is :stale_version_check: the outgoing record carries the
+      # 005 from the audit-time snapshot, so if Alma's copy has moved at all
+      # since, Alma rejects the write and the record is reported as skipped
+      # rather than silently overwritten from a stale base.
+      :reuse_audit_marc            => false,
       # Refuse to push a Resource that changed in ArchivesSpace after it was
       # audited, since the audit no longer describes what would be sent.
       :check_aspace_changes        => true,
@@ -79,6 +111,14 @@ module AlmaIntegrations
       # they are excluded from bulk updates unless explicitly opted in.
       :include_nz_linked           => false
     }.freeze
+
+    # Alma's sandbox is reported to allow roughly a tenth of production's
+    # throughput. Running above it does not fail fast: requests come back 429,
+    # get retried, and are charged on the way in and on the way out. Clamping
+    # costs a sandbox run some wall-clock time and saves it real quota.
+    SANDBOX_REQUESTS_PER_SECOND = 8
+
+    SANDBOX_ENVIRONMENTS = %w[sandbox test].freeze
 
     def self.from_app_config(overrides = {})
       values = {}
@@ -99,6 +139,7 @@ module AlmaIntegrations
         :open_timeout         => :alma_open_timeout,
         :read_timeout         => :alma_read_timeout,
         :bulk_fetch_size      => :alma_bulk_fetch_size,
+        :environment          => :alma_api_environment,
         :recommend_threshold  => :alma_audit_recommend_threshold,
         :include_unpublished  => :alma_include_unpublished,
         :store_alma_marc      => :alma_audit_store_alma_marc,
@@ -125,6 +166,12 @@ module AlmaIntegrations
 
     def initialize(values = {})
       @values = DEFAULTS.merge(symbolize(values).reject { |_, v| v.nil? })
+      apply_environment_ceiling!
+    end
+
+    # True when this is pointed at a sandbox instance.
+    def sandbox?
+      SANDBOX_ENVIRONMENTS.include?(self[:environment].to_s.strip.downcase)
     end
 
     def [](key)
@@ -161,6 +208,20 @@ module AlmaIntegrations
     end
 
     private
+
+    # Sandbox cannot be inferred from the API URL -- production and sandbox sit
+    # behind the same gateway hostname and the key alone decides which instance
+    # answers -- so this trusts the configured environment and clamps rather
+    # than guesses. The clamp only ever lowers the rate, so an institution that
+    # has deliberately configured something slower keeps it.
+    def apply_environment_ceiling!
+      return unless sandbox?
+
+      configured = @values[:requests_per_second].to_f
+      return if configured <= 0 || configured <= SANDBOX_REQUESTS_PER_SECOND
+
+      @values = @values.merge(:requests_per_second => SANDBOX_REQUESTS_PER_SECOND)
+    end
 
     def symbolize(hash)
       (hash || {}).each_with_object({}) { |(k, v), out| out[k.to_sym] = v }

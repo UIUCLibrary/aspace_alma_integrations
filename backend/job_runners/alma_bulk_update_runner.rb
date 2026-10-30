@@ -233,13 +233,79 @@ class AlmaBulkUpdateRunner < JobRunner
 
     return if fetchable.empty?
 
-    describe_read_strategy(fetchable.length)
+    describe_read_strategy(fetchable)
 
-    if batch_reads?
+    if reuse_audit_marc?
+      apply_reused(fetchable, generator)
+    elsif batch_reads?
       apply_batched(fetchable, generator)
     else
       fetchable.each { |entry| apply_one(entry, generator) }
     end
+  end
+
+  # The cheapest path: the audit already read every record and wrote it into the
+  # plan, so the update spends its one API call per record on the write alone.
+  #
+  # The snapshot is older than it would otherwise be -- taken when the audit
+  # ran, not moments before the write -- which is why this is opt-in. It is
+  # still a true picture of what Alma held immediately before the write, because
+  # the write carries that snapshot's 005 and Alma refuses it if its copy has
+  # moved since. A record that was edited in the meantime is reported as skipped
+  # rather than overwritten.
+  #
+  # Entries the audit did not store a record for fall back to reading.
+  def apply_reused(entries, generator)
+    stored, unstored = entries.partition { |entry| stored_marc(entry) }
+
+    stored.each do |entry|
+      check_canceled!
+
+      guard(entry) do
+        record = parse_stored_marc(entry)
+
+        if record.nil?
+          record_result(entry['input'], entry['mms_id'], 'failed',
+                        'The Alma record stored in the audit plan could not be read. Re-run the audit for this record.',
+                        :resource_uri => entry['resource_uri'])
+        else
+          process(entry, record, generator)
+        end
+      end
+
+      advance
+    end
+
+    return if unstored.empty?
+
+    log("#{unstored.length} record(s) were not stored in the plan and will be read from Alma.")
+    if batch_reads?
+      apply_batched(unstored, generator)
+    else
+      unstored.each { |entry| apply_one(entry, generator) }
+    end
+  end
+
+  def stored_marc(entry)
+    value = entry['alma_marc']
+    value.nil? || value.to_s.strip.empty? ? nil : value
+  end
+
+  def parse_stored_marc(entry)
+    document = Nokogiri::XML(stored_marc(entry))
+    return nil if document.nil? || document.root.nil?
+
+    document.remove_namespaces!
+    document.at_xpath('//record')
+  rescue StandardError
+    nil
+  end
+
+  # Reusing the audit's records is only offered when Alma is being asked to
+  # enforce the version check, because that check is the entire reason an
+  # audit-time snapshot is safe to write from.
+  def reuse_audit_marc?
+    settings[:reuse_audit_marc] && settings[:stale_version_check]
   end
 
   # Reading in batches turns one Alma call per record into one per hundred,
@@ -258,8 +324,16 @@ class AlmaBulkUpdateRunner < JobRunner
     settings[:bulk_fetch_size].to_i > 1
   end
 
-  def describe_read_strategy(count)
-    if batch_reads?
+  def describe_read_strategy(entries)
+    count = entries.length
+
+    if reuse_audit_marc?
+      stored = entries.count { |entry| stored_marc(entry) }
+      log("Reusing the #{stored} Alma record(s) the audit stored in its plan rather than reading " \
+          "them again; #{count - stored} record(s) still have to be read. Alma's version check " \
+          'still decides whether each write is allowed, so anything edited since the audit is ' \
+          'skipped rather than overwritten.')
+    elsif batch_reads?
       size = [settings[:bulk_fetch_size].to_i, AlmaIntegrations::AlmaClient::MAX_BULK_FETCH].min
       calls = (count.to_f / size).ceil
       log("Reading #{count} record(s) from Alma in batches of up to #{size}: " \

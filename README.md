@@ -29,7 +29,8 @@ Every one of these has a working default; you only need to set the ones you want
 | Setting | Default | What it does |
 |---|---|---|
 | `AppConfig[:alma_mms_id_field]` | `'string_2'` | Which Resource user-defined field holds the MMS ID. One of `string_1`–`string_4` or `text_1`–`text_5`. |
-| `AppConfig[:alma_requests_per_second]` | `19` | Ceiling for requests to Alma. Ex Libris governs at roughly 25/second **per institution**, not per API key, so this leaves headroom for your other campus integrations. |
+| `AppConfig[:alma_requests_per_second]` | `19` | Ceiling for requests to Alma. Ex Libris governs **per institution**, not per API key, so this leaves headroom for your other campus integrations. |
+| `AppConfig[:alma_api_environment]` | `'production'` | Set to `'sandbox'` when the API key points at a sandbox instance. Sandbox is governed far more tightly, and a request Alma rejects for going too fast still costs a call, so this lowers the rate ceiling to 8/second. Nothing can detect this for you: production and sandbox share a hostname and only the key tells them apart. |
 | `AppConfig[:alma_daily_quota_floor]` | `1000` | Stop a job when Alma's reported remaining daily calls drops below this. Prevents an audit from consuming the institution's whole daily quota. |
 | `AppConfig[:alma_max_retries]` | `5` | Retries for a throttled or transient failure, with exponential backoff plus jitter. |
 | `AppConfig[:alma_open_timeout]` | `15` | Seconds to wait for a connection. |
@@ -78,18 +79,26 @@ Safety rails, all on by default:
 * **A prior audit is required.** Skipping it needs an explicit override on the form.
 * **Dry run** defaults to on, so the first run of any list does everything except send the PUTs.
 * **Staleness checks.** Between the audit and the update, someone may have edited the record in Alma or in ArchivesSpace. The job compares Alma's 005 and the ArchivesSpace `lock_version` against the values captured at audit time, and additionally passes Alma's own `stale_version_check` on the PUT, so Alma itself rejects a record that moved underneath us. Stale records are held back and reported rather than overwritten.
+
+  Alma's check works by comparing the 005 in the record you send against the 005 it holds, and ArchivesSpace's MARC exporter does not emit an 005 at all. The update therefore stamps the outgoing record with the 005 read from the Alma record it is about to replace. Without that stamp the check would be inert, which is worth knowing if you ever turn `stale_version_check` off: doing so removes a real protection, not a redundant one, and it also forces the job back to reading records one at a time (see below).
 * **The failsafe copy.** Every Alma MARC record fetched during the audit is stored verbatim in the report, and the update job takes a fresh snapshot of each record immediately before overwriting it. If an update turns out to have been a mistake, the previous state of the catalogue record is on disk, not merely in Alma's history.
 * **Network Zone records are held back by default.** If a bib is an Institution Zone record linked to a shared Network Zone record, a PUT replaces only the local fields, so a straightforward "Alma minus ArchivesSpace" reading of the diff would overstate the loss. Rather than guess, the audit flags those records and the update skips them unless you opt in. If you know your bibs are IZ-only, you can turn this off.
 
 ## Rate limiting
 
-The Alma API is governed at roughly 25 requests per second across your whole institution, and there is a daily call quota that this plugin shares with every other Alma integration on campus. An audit of a few thousand records could comfortably starve all of them, so:
+The Alma API is governed per second across your whole institution, and there is a daily call quota that this plugin shares with every other Alma integration on campus. An audit of a few thousand records could comfortably starve all of them, so:
 
 * requests pass through a shared token bucket, defaulting to 19/second across the whole ArchivesSpace process;
 * bibs are fetched **100 at a time** via Alma's multi-ID `GET /bibs`, which turns a 1,200-record audit into about 12 calls rather than 1,200 — the audit is essentially free against your quota, and only the update (one PUT per record, unavoidable) is expensive;
+* the bulk update batches its reads the same way, so a 1,200-record update costs about 1,212 calls rather than 2,400. This is why `stale_version_check` matters beyond correctness: batching means the last record in a batch is written up to a hundred updates after it was read, and Alma's version check is what makes that window safe. With the check turned off the job reads one record at a time instead, keeping the window narrow at twice the cost;
+* ticking **"Also keep those copies where a bulk update can reuse them"** on the audit, and **"Write from the records the audit already read"** on the update, removes the update's read entirely: one call per record. Both are off by default. The first inflates the audit's working file; the second writes from a snapshot taken when the audit ran rather than moments before the write, which is sound only because Alma's version check rejects anything that has moved since — and will therefore report more skipped records the longer you leave it between auditing and updating;
 * a `PER_SECOND_THRESHOLD` rejection backs off with jitter and retries;
 * the remaining-calls figure Alma returns on every response is watched, and the job stops cleanly if it falls below your configured floor;
 * a `DAILY_THRESHOLD` rejection stops the job with a resumable checkpoint. It deliberately does **not** sleep until midnight: ArchivesSpace runs two job threads by default, and a job that sleeps for hours would occupy half your job capacity.
+
+Every job ends by reporting what it cost: the number of requests it made, and the drop in the `X-Exl-Api-Remaining` figure Alma returns on each response. Those two numbers are not the same thing. Ex Libris does not document whether a 100-ID bib `GET` is charged as one call or as a hundred, so the first real run of an audit answers that for your institution, and the job log says what the answer implies. The counter is institution-wide, so some of any drop will be other people's traffic — treat it as an upper bound.
+
+If your API key points at the **sandbox**, set `AppConfig[:alma_api_environment] = 'sandbox'`. Sandbox is governed much more tightly than production, and a request Alma rejects for arriving too fast still costs a call, so a production-tuned run against the sandbox spends real quota on nothing. Nothing can detect this for you: both instances answer on the same hostname and only the key tells them apart.
 
 The API key is sent in an `Authorization` header rather than in the query string, so it stays out of Alma's logs and out of any proxy's.
 

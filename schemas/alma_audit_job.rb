@@ -63,6 +63,15 @@
         'default' => true
       },
 
+      # Also copies each Alma record into the plan file, so a bulk update run
+      # from this audit can skip reading Alma a second time and halve what it
+      # costs the institution's daily API allowance. Makes the plan file much
+      # larger, so it is only worth turning on when an update will follow.
+      'plan_includes_alma_marc' => {
+        'type' => 'boolean',
+        'default' => false
+      },
+
       # The outgoing record can be regenerated from ArchivesSpace at any time,
       # so it is only stored on request.
       'store_outgoing_marc' => {

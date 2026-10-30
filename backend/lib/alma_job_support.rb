@@ -33,6 +33,8 @@ module AlmaIntegrations
       overrides[:include_nz_linked] = truthy(job_param('include_nz_linked')) if job_param?('include_nz_linked')
       overrides[:stale_version_check] = truthy(job_param('stale_version_check')) if job_param?('stale_version_check')
       overrides[:check_aspace_changes] = truthy(job_param('check_aspace_changes')) if job_param?('check_aspace_changes')
+      overrides[:plan_includes_alma_marc] = truthy(job_param('plan_includes_alma_marc')) if job_param?('plan_includes_alma_marc')
+      overrides[:reuse_audit_marc] = truthy(job_param('reuse_audit_marc')) if job_param?('reuse_audit_marc')
 
       overrides
     end
@@ -214,8 +216,16 @@ module AlmaIntegrations
     end
 
     def describe_rate_limiting
-      log("Alma requests are capped at #{settings[:requests_per_second]}/second across this " \
-          'ArchivesSpace instance.')
+      if settings.respond_to?(:sandbox?) && settings.sandbox?
+        log("Alma requests are capped at #{settings[:requests_per_second]}/second across this " \
+            'ArchivesSpace instance, lowered to the sandbox ceiling because this API key is ' \
+            'configured as a sandbox key. Sandbox throttling rejects anything faster, and a ' \
+            'rejected request still costs a call.')
+      else
+        log("Alma requests are capped at #{settings[:requests_per_second]}/second across this " \
+            'ArchivesSpace instance.')
+      end
+
       floor = settings[:daily_quota_floor].to_i
       log("The job stops if Alma's remaining daily allowance falls below #{floor}.") if floor > 0
     end

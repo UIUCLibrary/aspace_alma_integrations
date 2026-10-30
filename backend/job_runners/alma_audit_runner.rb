@@ -271,7 +271,7 @@ class AlmaAuditRunner < JobRunner
   # per line. Kept separate from the report so the updater never has to load a
   # multi-megabyte document into memory to find out what to do.
   def build_plan_entry(resolution, comparison, zone, alma)
-    {
+    entry = {
       'mms_id' => resolution.mms_id,
       'resource_id' => resolution.resource_id,
       'resource_uri' => resolution.uri,
@@ -287,6 +287,13 @@ class AlmaAuditRunner < JobRunner
       'aspace_lock_version' => resolution.lock_version,
       'aspace_system_mtime' => resolution.system_mtime.respond_to?(:iso8601) ? resolution.system_mtime.iso8601 : resolution.system_mtime.to_s
     }
+
+    # Carrying the record itself costs plan size but saves the update job a
+    # second read of every record. Only worth it if an update is actually going
+    # to be run from this audit, so it is off unless asked for.
+    entry['alma_marc'] = alma.to_xml if settings[:plan_includes_alma_marc]
+
+    entry
   end
 
   def record_error(resolution, kind, message)

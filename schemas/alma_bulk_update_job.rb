@@ -51,6 +51,16 @@
         'default' => true
       },
 
+      # Writes from the Alma record the audit already stored rather than reading
+      # each record again, which costs one API call per record instead of two.
+      # Requires the audit to have been run with plan_includes_alma_marc, and
+      # requires stale_version_check, which is what makes writing from an
+      # audit-time snapshot safe: Alma refuses anything that moved since.
+      'reuse_audit_marc' => {
+        'type' => 'boolean',
+        'default' => false
+      },
+
       # Refuses records whose ArchivesSpace resource was modified after the
       # audit ran, since the audit no longer describes what would be sent.
       'check_aspace_changes' => {

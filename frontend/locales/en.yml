@@ -32,6 +32,7 @@ en:
     collection_id_field_identifier: Resource identifier only
     csv_column: CSV column (0 is the first)
     store_alma_marc: Keep a copy of each Alma record
+    plan_includes_alma_marc: Also keep those copies where a bulk update can reuse them (halves the Alma API calls an update costs, but makes this audit's working file much larger)
     store_outgoing_marc: Keep a copy of each outgoing ArchivesSpace record
     include_unpublished: Include unpublished records
     not_finished: This audit has not produced a report yet. Check the job log for progress.
@@ -56,6 +57,7 @@ en:
     dry_run: Dry run (check everything, send nothing to Alma)
     skip_identical: Skip records already identical to Alma
     stale_version_check: Refuse records Alma has changed since the audit
+    reuse_audit_marc: Write from the records the audit already read (halves the Alma API calls, and needs an audit run with the option above)
     check_aspace_changes: Refuse records ArchivesSpace has changed since the audit
     include_nz_linked: Include Network Zone linked records
     skip_audit: Push without an audit report

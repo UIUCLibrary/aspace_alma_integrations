@@ -200,4 +200,44 @@ RSpec.describe AlmaIntegrations::Settings do
       expect(params['store_outgoing_marc']).to be(true)
     end
   end
+
+  describe 'sandbox rate ceiling' do
+    it 'leaves production alone, since the default exists to protect the production allowance' do
+      settings = described_class.new
+
+      expect(settings.sandbox?).to be(false)
+      expect(settings[:requests_per_second]).to eq(19)
+    end
+
+    it 'lowers a production-tuned rate to the sandbox ceiling so test runs do not burn quota on 429s' do
+      settings = described_class.new(:environment => 'sandbox', :requests_per_second => 19)
+
+      expect(settings.sandbox?).to be(true)
+      expect(settings[:requests_per_second]).to eq(described_class::SANDBOX_REQUESTS_PER_SECOND)
+    end
+
+    it 'never raises a rate that was deliberately configured lower' do
+      settings = described_class.new(:environment => 'sandbox', :requests_per_second => 2)
+
+      expect(settings[:requests_per_second]).to eq(2)
+    end
+
+    it 'recognises the environment whatever case or padding it was configured with' do
+      ['SANDBOX', ' Sandbox ', 'test'].each do |value|
+        expect(described_class.new(:environment => value).sandbox?).to be(true)
+      end
+    end
+
+    it 'keeps the ceiling in place across a merge, so a per-job override cannot undo it' do
+      settings = described_class.new(:environment => 'sandbox').merge(:requests_per_second => 50)
+
+      expect(settings[:requests_per_second]).to eq(described_class::SANDBOX_REQUESTS_PER_SECOND)
+    end
+
+    it 'reads the environment from AppConfig' do
+      with_app_config(app_config_with(:alma_api_environment => 'sandbox')) do
+        expect(described_class.from_app_config.sandbox?).to be(true)
+      end
+    end
+  end
 end
