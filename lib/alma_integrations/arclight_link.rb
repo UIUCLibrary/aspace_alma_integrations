@@ -144,12 +144,15 @@ module AlmaIntegrations
       node
     end
 
-    # Matches on the base URL rather than on the tag alone: 956 is a local
-    # field and another system may legitimately be using it on the same record.
+    # Matches on the Arclight record-page prefix rather than on the tag or the
+    # bare host: 956 is a local field, and an Arclight mounted at the root of a
+    # host shares that host with everything else the library runs there.
     def remove_existing(record)
+      prefix = "#{@base_url}/catalog/"
+
       record.xpath("./datafield[@tag='#{TAG}']").each do |field|
         urls = field.xpath("./subfield[@code='u']").map { |node| node.text.to_s.strip }
-        next unless urls.any? { |value| value.start_with?("#{@base_url}/") || value == @base_url }
+        next unless urls.any? { |value| value.start_with?(prefix) }
 
         field.remove
       end

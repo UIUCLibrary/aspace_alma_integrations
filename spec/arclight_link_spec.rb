@@ -221,6 +221,29 @@ RSpec.describe AlmaIntegrations::ArclightLink do
                                       "#{base}/catalog/UA-39-2-28")
     end
 
+    # An Arclight mounted at the root of a host shares that host with whatever
+    # else the library runs there, so the base URL alone is not enough to tell
+    # our link apart from somebody else's. Only a record page is ours.
+    it 'leaves a 956 pointing elsewhere on the same host alone' do
+      node = record(<<~XML)
+        <record>
+          <datafield tag="245" ind1="1" ind2="0"><subfield code="a">Papers</subfield></datafield>
+          <datafield tag="956" ind1="4" ind2="0">
+            <subfield code="u">#{base}/vufind/Record/9</subfield>
+          </datafield>
+          <datafield tag="956" ind1="4" ind2="2">
+            <subfield code="u">#{base}/catalog/OLD-SLUG</subfield>
+          </datafield>
+        </record>
+      XML
+
+      link.apply(node, :ead_id => 'UA.39.2.28')
+
+      urls = field_956(node).map { |f| subfield(f, 'u') }.flatten
+      expect(urls).to contain_exactly("#{base}/vufind/Record/9",
+                                      "#{base}/catalog/UA-39-2-28")
+    end
+
     it 'is idempotent' do
       node = record
       link.apply(node, :ead_id => 'UA.39.2.28')
