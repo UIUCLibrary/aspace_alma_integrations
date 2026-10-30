@@ -33,6 +33,17 @@ class AlmaBulkUpdateRunner < JobRunner
         log('')
         log("Failed: #{e.message}")
         e.backtrace.first(15).each { |line| log("    #{line}") }
+        # Attach whatever was produced before the failure. By this point the job
+        # may already have overwritten hundreds of catalogue records, and the
+        # snapshots of what Alma held beforehand are the only copy of what they
+        # used to be. Losing them because the run ended badly would discard the
+        # failsafe exactly when it is most needed. Best effort: a failure here
+        # must not mask the error that actually stopped the job.
+        begin
+          finalise(:stopped_early => e.message)
+        rescue StandardError => attach_error
+          log("The partial results could not be attached: #{attach_error.message}")
+        end
         raise
       ensure
         close_resources
@@ -209,6 +220,7 @@ class AlmaBulkUpdateRunner < JobRunner
     generator = AlmaIntegrations::AspaceMarcGenerator.new(:settings => settings)
     @total = plan.length
     @done = 0
+    @unversioned_refetches = 0
 
     # Records that need no Alma read at all are settled first. They cost
     # nothing, and taking them out of the way lets every batched fetch carry a
@@ -218,17 +230,21 @@ class AlmaBulkUpdateRunner < JobRunner
 
     plan.each do |entry|
       check_canceled!
-      reason = skip_reason(entry)
 
-      if reason
-        guard(entry) do
+      settled = true
+      guard(entry) do
+        reason = skip_reason(entry)
+
+        if reason
           record_result(entry['input'], entry['mms_id'], 'skipped', reason,
                         :resource_uri => entry['resource_uri'])
+        else
+          settled = false
+          fetchable << entry
         end
-        advance
-      else
-        fetchable << entry
       end
+
+      advance if settled
     end
 
     return if fetchable.empty?
@@ -242,6 +258,12 @@ class AlmaBulkUpdateRunner < JobRunner
     else
       fetchable.each { |entry| apply_one(entry, generator) }
     end
+
+    return if @unversioned_refetches.zero?
+
+    log("#{@unversioned_refetches} record(s) had no 005 in Alma, so Alma's version check could " \
+        'not have protected them. Each was read again on its own and written from that, rather ' \
+        'than from the batched or reused copy.')
   end
 
   # The cheapest path: the audit already read every record and wrote it into the
@@ -269,7 +291,7 @@ class AlmaBulkUpdateRunner < JobRunner
                         'The Alma record stored in the audit plan could not be read. Re-run the audit for this record.',
                         :resource_uri => entry['resource_uri'])
         else
-          process(entry, record, generator)
+          process(entry, record, generator, :widened => true)
         end
       end
 
@@ -352,26 +374,65 @@ class AlmaBulkUpdateRunner < JobRunner
     by_mms = Hash.new { |hash, key| hash[key] = [] }
     entries.each { |entry| by_mms[entry['mms_id'].to_s] << entry }
 
-    alma_client.each_bib(by_mms.keys) do |mms_id, record, error|
-      check_canceled!
+    # Tracked so that a failure of the batched read itself -- exhausted
+    # retries, a 429 that never cleared -- can be answered for every record it
+    # swallowed. Reading one record at a time, a dead connection cost one
+    # record; reading a hundred at a time it would cost a hundred, and without
+    # this it would cost the whole rest of the run.
+    outstanding = by_mms.keys
 
-      by_mms[mms_id.to_s].each do |entry|
-        guard(entry) do
-          if error
-            record_result(entry['input'], mms_id, 'failed',
-                          "Could not read the record from Alma: #{error}",
-                          :resource_uri => entry['resource_uri'])
-          elsif record.nil?
-            record_result(entry['input'], mms_id, 'failed', 'Alma returned no MARC record',
-                          :resource_uri => entry['resource_uri'])
-          else
-            process(entry, record, generator)
+    begin
+      alma_client.each_bib(by_mms.keys) do |mms_id, record, error|
+        check_canceled!
+        outstanding.delete(mms_id.to_s)
+
+        by_mms[mms_id.to_s].each do |entry|
+          guard(entry) do
+            if error
+              record_result(entry['input'], mms_id, 'failed',
+                            "Could not read the record from Alma: #{error}",
+                            :resource_uri => entry['resource_uri'])
+            elsif record.nil?
+              record_result(entry['input'], mms_id, 'failed', 'Alma returned no MARC record',
+                            :resource_uri => entry['resource_uri'])
+            else
+              process(entry, record, generator, :widened => true)
+            end
           end
-        end
 
+          advance
+        end
+      end
+    rescue AlmaIntegrations::DailyThresholdError, AlmaIntegrations::QuotaFloorError
+      raise
+    rescue AlmaIntegrations::JobSupport::CanceledError
+      raise
+    rescue StandardError => e
+      fail_outstanding(outstanding, by_mms, "Could not read the record from Alma: #{e.message}")
+      raise
+    end
+
+    # each_bib yields for every id it was given, so anything still outstanding
+    # means the read stopped short rather than reported a per-record problem.
+    fail_outstanding(outstanding, by_mms, 'Alma did not return this record and the read ended early')
+  end
+
+  def fail_outstanding(outstanding, by_mms, message)
+    return if outstanding.empty?
+
+    outstanding.each do |mms_id|
+      by_mms[mms_id].each do |entry|
+        begin
+          record_result(entry['input'], mms_id, 'failed', message,
+                        :resource_uri => entry['resource_uri'])
+        rescue StandardError
+          nil
+        end
         advance
       end
     end
+
+    outstanding.clear
   end
 
   def apply_one(entry, generator)
@@ -403,9 +464,25 @@ class AlmaBulkUpdateRunner < JobRunner
     report_progress(@done, @total)
   end
 
-  def process(entry, current, generator)
+  def process(entry, current, generator, widened: false)
     mms_id = entry['mms_id']
     alma_record = AlmaIntegrations::MarcRecord.parse(current)
+
+    # Reading in batches, or reusing what the audit read, is only safe because
+    # Alma refuses a write whose 005 does not match the one it holds. A record
+    # with no 005 gives Alma nothing to compare -- and `stale?` below cannot
+    # compare what is not there either -- so such a record would be written from
+    # a snapshot that nothing had checked, which for a reused read could be days
+    # old. Read it again on its own and write from that. It is no better
+    # protected than a one-record-at-a-time run would be, but it is no worse,
+    # and it costs one API call rather than refusing to update the record at all.
+    if widened && alma_record.controlfield_value('005').to_s.strip.empty?
+      @unversioned_refetches += 1
+      fresh = fetch_current(entry)
+      return if fresh.nil?
+
+      return process(entry, fresh, generator)
+    end
 
     if stale?(entry, alma_record)
       record_result(entry['input'], mms_id, 'skipped',
@@ -589,6 +666,9 @@ class AlmaBulkUpdateRunner < JobRunner
 
   def finalise(stopped_early: nil)
     return if @results.nil?
+    return if @finalised
+
+    @finalised = true
 
     log_heading('Writing the results')
 
