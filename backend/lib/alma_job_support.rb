@@ -36,6 +36,11 @@ module AlmaIntegrations
       overrides[:plan_includes_alma_marc] = truthy(job_param('plan_includes_alma_marc')) if job_param?('plan_includes_alma_marc')
       overrides[:reuse_audit_marc] = truthy(job_param('reuse_audit_marc')) if job_param?('reuse_audit_marc')
 
+      # A text field, not a checkbox: blank means "leave the configured default
+      # alone" rather than "use no text at all".
+      link_text = job_param('arclight_link_text').to_s.strip
+      overrides[:arclight_link_text] = link_text unless link_text.empty?
+
       overrides
     end
 
@@ -228,6 +233,22 @@ module AlmaIntegrations
 
       floor = settings[:daily_quota_floor].to_i
       log("The job stops if Alma's remaining daily allowance falls below #{floor}.") if floor > 0
+    end
+
+    # Says, once per run, whether outgoing records will carry an Arclight link.
+    # Worth stating up front: when it is on it shows up as a 956 addition on
+    # every record in an audit report, and somebody reading that report should
+    # know why before they start wondering.
+    def describe_arclight
+      link = ArclightLink.new(settings)
+
+      unless link.configured?
+        log('No Arclight base URL is configured, so outgoing records carry no 956 link.')
+        return
+      end
+
+      log("Outgoing records carry a MARC 956 linking to #{link.base_url}, with the link text " \
+          "#{settings[:arclight_link_text].to_s.inspect}.")
     end
 
     # The quota section of a job summary. Returns nil when no Alma client was

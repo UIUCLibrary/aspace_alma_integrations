@@ -71,8 +71,11 @@ class AlmaIntegrator
   # audit and bulk update jobs also use. Sharing one implementation is what lets
   # the audit report claim to describe what a push would really do -- two copies
   # of this logic would eventually disagree, and the report would start lying.
-  def preserve_alma_marc_fields(aspace, alma)
+  def preserve_alma_marc_fields(aspace, alma, resource = nil)
     @preserve_result = marc_preserver.apply(aspace['content'], alma['content'])
+    arclight_link.apply(@preserve_result.record,
+                        :ead_id => resource_ead_id(resource),
+                        :identifier => resource_identifier_parts(resource))
     @preserve_result.to_xml(:indent => 2)
   end
 
@@ -83,10 +86,33 @@ class AlmaIntegrator
   end
 
   def marc_preserver
-    @marc_preserver ||= AlmaIntegrations::MarcPreserver.new(AlmaIntegrations::Settings.from_app_config)
+    @marc_preserver ||= AlmaIntegrations::MarcPreserver.new(settings)
   end
 
-  def search_bibs(ref, mms)
+  # The Arclight 956 is added here as well as in the bulk jobs, for the same
+  # reason the field preservation is: the record this screen shows has to be the
+  # record Alma receives. Both paths call the same AlmaIntegrations::ArclightLink.
+  def arclight_link
+    @arclight_link ||= AlmaIntegrations::ArclightLink.new(settings)
+  end
+
+  def settings
+    @settings ||= AlmaIntegrations::Settings.from_app_config
+  end
+
+  def resource_ead_id(resource)
+    resource.nil? ? nil : resource['ead_id']
+  end
+
+  # The Resource identifier arrives from the backend as four separate id_N
+  # properties rather than as the JSON array the database stores.
+  def resource_identifier_parts(resource)
+    return [] if resource.nil?
+
+    (0..3).map { |i| resource["id_#{i}"].to_s.strip }.reject(&:empty?)
+  end
+
+  def search_bibs(ref, mms, resource = nil)
     results = {'mms' => mms}
 
     # first, try to get the ArchivesSpace MARC record
@@ -104,12 +130,16 @@ class AlmaIntegrator
       if alma.has_key?('error')
         results['alma'] = {'error' => alma['error']}
         results['alma_marc'] = nil
-        results['marc'] = aspace['content'].to_xml(indent: 2)
+        # There is nothing to preserve from -- this record is new to Alma -- but
+        # it still goes through the same preparation, so that the Arclight 956
+        # is added and the record is shaped exactly like one that does have an
+        # Alma match.
+        results['marc'] = preserve_alma_marc_fields(aspace, {}, resource)
         results['aspace_marc'] = results['marc']
       else
         results['alma'] = {'success' => mms}
         results['alma_marc'] = alma['content'].to_xml(indent: 2)
-        results['marc'] = preserve_alma_marc_fields(aspace, alma)
+        results['marc'] = preserve_alma_marc_fields(aspace, alma, resource)
         results['aspace_marc'] = results['marc']
         results['preserve_warnings'] = preserve_warnings
       end

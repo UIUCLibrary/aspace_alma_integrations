@@ -35,6 +35,8 @@ en:
     plan_includes_alma_marc: Also keep those copies where a bulk update can reuse them (halves the Alma API calls an update costs, but makes this audit's working file much larger)
     store_outgoing_marc: Keep a copy of each outgoing ArchivesSpace record
     include_unpublished: Include unpublished records
+    arclight_link_text: Arclight link text for the MARC 956 (leave blank for the configured default)
+    arclight_link_text_placeholder: Finding aid online
     not_finished: This audit has not produced a report yet. Check the job log for progress.
     summary_heading: Audit summary
     stat_audited: "%{audited} of %{total} records audited"
@@ -78,6 +80,8 @@ en:
     csv_column: CSV column (0 is the first)
     skip_header: First row of the uploaded file is a header
     include_unpublished: Include unpublished records
+    arclight_link_text: Arclight link text for the MARC 956 (leave blank for the configured default)
+    arclight_link_text_placeholder: Finding aid online
     summary: Update summary
 
   alma_mms_assign_job:

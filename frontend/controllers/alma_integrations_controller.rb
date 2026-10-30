@@ -84,7 +84,7 @@ class AlmaIntegrationsController < ApplicationController
 
   	results['results'] = case params['record_type']
   	when "bibs"
-  		integrator.search_bibs(ref, results['mms'])
+  		integrator.search_bibs(ref, results['mms'], json)
   	when "holdings"
   		integrator.search_holdings(results['mms'])
   	when "items"

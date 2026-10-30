@@ -66,6 +66,7 @@ class AlmaAuditRunner < JobRunner
     log("Repository: #{@job.repo_id}")
     log("Alma MMS ID is read from user_defined.#{settings[:mms_field]}")
     describe_rate_limiting
+    describe_arclight
     sweep_expired_reports
 
     resolutions = resolve_input
@@ -212,7 +213,9 @@ class AlmaAuditRunner < JobRunner
     zone = AlmaIntegrations::NetworkZone.detect(alma)
 
     result = generator.outgoing(resolution.resource_id, alma_record,
-                                :include_unpublished => settings[:include_unpublished])
+                                :include_unpublished => settings[:include_unpublished],
+                                :ead_id => resolution.ead_id,
+                                :identifier => resolution.identifier_parts)
     outgoing = AlmaIntegrations::MarcRecord.parse(result.record)
 
     comparison = diff.diff(alma, outgoing)
@@ -277,6 +280,8 @@ class AlmaAuditRunner < JobRunner
       'resource_uri' => resolution.uri,
       'title' => resolution.title,
       'input' => resolution.input,
+      'ead_id' => resolution.ead_id,
+      'identifier_parts' => resolution.identifier_parts,
       'nz_linked' => zone.linked?,
       'has_loss' => comparison['has_loss'],
       'has_change' => comparison['has_change'],

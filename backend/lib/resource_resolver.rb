@@ -21,7 +21,7 @@ module AlmaIntegrations
     ).freeze
 
     Resolution = Struct.new(:input, :kind, :matched_by, :resource_id, :uri, :title,
-                            :mms_id, :ead_id, :identifier, :lock_version,
+                            :mms_id, :ead_id, :identifier, :identifier_parts, :lock_version,
                             :system_mtime, :error, :error_kind,
                             :keyword_init => true) do
       def ok?
@@ -292,6 +292,7 @@ module AlmaIntegrations
         :mms_id => mms_id,
         :ead_id => row[:ead_id],
         :identifier => format_identifier(row[:identifier]),
+        :identifier_parts => identifier_parts(row[:identifier]),
         :lock_version => row[:lock_version],
         :system_mtime => row[:system_mtime],
         :error => missing_mms_id ? "Resource has no Alma MMS ID in user_defined.#{@mms_field}" : nil,
@@ -315,6 +316,16 @@ module AlmaIntegrations
       Array(parts).compact.join('--')
     rescue StandardError
       raw.to_s
+    end
+
+    # The identifier as its separate parts, for callers that need to join them
+    # some other way. The display form above uses ArchivesSpace's '--'; the MARC
+    # and EAD exports, and so Arclight's URLs, use dots.
+    def identifier_parts(raw)
+      parts = ASUtils.json_parse(raw || '[]')
+      Array(parts).map { |part| part.to_s.strip }.reject(&:empty?)
+    rescue StandardError
+      []
     end
   end
 end

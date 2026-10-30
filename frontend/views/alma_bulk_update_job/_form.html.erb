@@ -21,6 +21,8 @@
 
 <%= form.label_and_boolean "include_nz_linked", {}, false %>
 
+<%= form.label_and_textfield "arclight_link_text", :field_opts => {:placeholder => t("alma_bulk_update_job.arclight_link_text_placeholder")} %>
+
 <h4><%= t('alma_bulk_update_job.without_audit_heading') %></h4>
 <p class="help-block"><%= t('alma_bulk_update_job.without_audit_help') %></p>
 

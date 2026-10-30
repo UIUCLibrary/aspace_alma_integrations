@@ -42,6 +42,37 @@ Every one of these has a working default; you only need to set the ones you want
 | `AppConfig[:alma_audit_report_retention_days]` | `nil` | Delete audit report files older than N days. `nil` keeps them forever. Only the files are removed; job history rows are never touched. |
 | `AppConfig[:alma_include_unpublished]` | `false` | Whether generated MARC includes unpublished records. Must match whatever your single-record push uses, or the audit will describe a push you are not actually making. |
 | `AppConfig[:alma_standalone_permission]` | `false` | Register the bulk-update permission as a real, independently grantable permission instead of deriving it. See [Permissions](#permissions). |
+| `AppConfig[:alma_arclight_base_url]` | `nil` | Root URL of your Arclight instance, e.g. `'https://arclight.example.edu'`. Setting it is what switches the MARC 956 on. See [Linking to Arclight](#linking-to-arclight-marc-956). |
+| `AppConfig[:alma_arclight_id_source]` | `'auto'` | Which ArchivesSpace field the Arclight slug is built from: `auto` (EAD ID, falling back to the Resource identifier), `ead_id`, or `identifier`. |
+| `AppConfig[:alma_arclight_link_text]` | `'Finding aid online'` | Default text for the 956 `$y`. Both bulk job forms can override it for a single run. |
+| `AppConfig[:alma_arclight_indicators]` | `'42'` | The two indicators for the 956, as a two-character string. 956 is locally defined, so change this if your Alma normalisation rules expect something else. |
+
+# Linking to Arclight (MARC 956)
+
+Set `AppConfig[:alma_arclight_base_url]` and every record this plugin sends to Alma gains a MARC 956 pointing at the collection's page in Arclight. Leave it unset and nothing is added.
+
+The URL is derived rather than stored, so there is no field to maintain:
+
+```
+<base URL>/catalog/<slug>
+```
+
+where `<slug>` is Arclight's own normalised ID — the collection's EAD ID with dots turned into dashes. A Resource whose EAD ID is `UA.39.2.28` produces `https://arclight.example.edu/catalog/UA-39-2-28`. When a Resource has no EAD ID the four-part Resource identifier is used instead, joined with dots first, which is what the MARC and EAD exports do with it. `AppConfig[:alma_arclight_id_source]` pins the choice if `auto` guesses wrong for your data.
+
+The field is written as:
+
+```
+956 42 $u <URL> $y <link text>
+```
+
+The indicators mirror the `4`/`2` ArchivesSpace itself uses for the finding aid 856, and both they and the link text are configurable. The audit and bulk update forms each have an **Arclight link text** box that overrides the configured default for that run only; leave it blank to use the default.
+
+Running a push twice does not accumulate duplicate fields: an existing 956 pointing into the same Arclight instance is replaced, and a 956 pointing anywhere else is left alone.
+
+Two things worth knowing before you turn it on:
+
+* **The audit will report a 956 addition on every record**, because the outgoing record now has a field the Alma record does not. That is truthful rather than noisy — it is exactly what the push would do — but if you would rather it stayed out of the headline counts, add `'956'` to `AppConfig[:alma_audit_ignored_tags]`. It will still appear in the per-record detail.
+* **Only collection-level links are produced.** ArchivesSpace's MARC export emits one bib record per Resource and no component records, so there is nowhere for a component link to go. Arclight's component URLs (`<base>/catalog/<slug>_aspace_<ref id>`) are supported by the underlying code and will be used if component-level MARC is ever exported.
 
 # Bulk audit and bulk update
 

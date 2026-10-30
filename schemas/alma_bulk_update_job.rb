@@ -109,6 +109,14 @@
         'default' => false
       },
 
+      # Overrides AppConfig[:alma_arclight_link_text] for this run only. The
+      # URL itself is derived; only the wording of the link is adjustable here.
+      # Blank leaves the configured default in place.
+      'arclight_link_text' => {
+        'type' => 'string',
+        'required' => false
+      },
+
       'summary' => {
         'type' => 'object',
         'required' => false

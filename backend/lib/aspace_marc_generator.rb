@@ -21,6 +21,13 @@ module AlmaIntegrations
     def initialize(settings: nil)
       @settings = settings || Settings.new
       @preserver = MarcPreserver.new(@settings)
+      @arclight = ArclightLink.new(@settings)
+    end
+
+    # True when an Arclight base URL is configured and outgoing records will
+    # therefore carry a 956.
+    def arclight?
+      @arclight.configured?
     end
 
     # The record as ArchivesSpace would export it, before anything is preserved
@@ -42,10 +49,21 @@ module AlmaIntegrations
     # is what makes Alma's own `stale_version_check` able to reject a record
     # that changed between the read and the write; see
     # MarcPreserver#stamp_version. The audit leaves it nil.
-    def outgoing(resource_id, alma_record, include_unpublished: nil, version_stamp: nil)
+    #
+    # `ead_id` and `identifier` are the Resource's, and are what the Arclight
+    # 956 is built from. They are passed in rather than looked up because the
+    # caller has already read them: both runners resolve every Resource up
+    # front, and re-reading them here would be a second query per record. When
+    # neither is given, or no Arclight base URL is configured, no 956 is added.
+    def outgoing(resource_id, alma_record, include_unpublished: nil, version_stamp: nil,
+                 ead_id: nil, identifier: nil, link_text: nil)
       aspace_marc = generate(resource_id, :include_unpublished => include_unpublished)
 
       result = @preserver.apply(aspace_marc, alma_record)
+      @arclight.apply(result.record,
+                      :ead_id => ead_id,
+                      :identifier => identifier,
+                      :link_text => link_text)
       @preserver.stamp_version(result.record, version_stamp) unless version_stamp.nil?
       result
     end

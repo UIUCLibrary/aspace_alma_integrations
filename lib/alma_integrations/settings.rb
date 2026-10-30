@@ -109,7 +109,29 @@ module AlmaIntegrations
       :check_aspace_changes        => true,
       # Network Zone linked records are only partially replaced by a bib PUT, so
       # they are excluded from bulk updates unless explicitly opted in.
-      :include_nz_linked           => false
+      :include_nz_linked           => false,
+
+      # --- Arclight link (MARC 956) ----------------------------------------
+      # Root URL of the Arclight instance, e.g.
+      # 'https://arclight.example.edu'. Leaving it unset switches the 956 off
+      # entirely: there is no sensible default for somebody else's hostname,
+      # and a guessed one would push dead links into the catalogue.
+      :arclight_base_url           => nil,
+
+      # Which ArchivesSpace field the Arclight slug is built from. Arclight
+      # derives its root ID from <eadid> as shipped, but an institution whose
+      # EAD IDs are blank or unrelated to its call numbers indexes something
+      # else. 'auto' prefers the EAD ID and falls back to the Resource
+      # identifier; 'ead_id' and 'identifier' pin it.
+      :arclight_id_source          => 'auto',
+
+      # Default text for the link's $y. Overridable per run.
+      :arclight_link_text          => 'Finding aid online',
+
+      # Indicators for the 956. 956 is a locally defined field, so these are
+      # institutional practice rather than MARC law; the default mirrors the
+      # 4/2 ArchivesSpace itself uses for the finding aid 856.
+      :arclight_indicators         => '42'
     }.freeze
 
     # Alma's sandbox is reported to allow roughly a tenth of production's
@@ -143,7 +165,11 @@ module AlmaIntegrations
         :recommend_threshold  => :alma_audit_recommend_threshold,
         :include_unpublished  => :alma_include_unpublished,
         :store_alma_marc      => :alma_audit_store_alma_marc,
-        :report_retention_days => :alma_audit_report_retention_days
+        :report_retention_days => :alma_audit_report_retention_days,
+        :arclight_base_url    => :alma_arclight_base_url,
+        :arclight_id_source   => :alma_arclight_id_source,
+        :arclight_link_text   => :alma_arclight_link_text,
+        :arclight_indicators  => :alma_arclight_indicators
       }.each do |key, app_config_key|
         value = app_config(app_config_key)
         values[key] = value unless value.nil?

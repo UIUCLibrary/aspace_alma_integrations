@@ -70,6 +70,7 @@ class AlmaBulkUpdateRunner < JobRunner
     log('No requests will be sent to Alma. This run reports what would happen.') if dry_run?
     describe_rate_limiting
     describe_safety_settings
+    describe_arclight
 
     plan = load_plan
     check_canceled!
@@ -196,6 +197,8 @@ class AlmaBulkUpdateRunner < JobRunner
           'resource_uri' => resolution.uri,
           'title' => resolution.title,
           'input' => resolution.input,
+          'ead_id' => resolution.ead_id,
+          'identifier_parts' => resolution.identifier_parts,
           'nz_linked' => nil,
           'has_loss' => nil,
           'has_change' => nil,
@@ -517,7 +520,9 @@ class AlmaBulkUpdateRunner < JobRunner
 
     result = generator.outgoing(entry['resource_id'], current,
                                 :include_unpublished => settings[:include_unpublished],
-                                :version_stamp => version_stamp(alma_record))
+                                :version_stamp => version_stamp(alma_record),
+                                :ead_id => entry['ead_id'],
+                                :identifier => entry['identifier_parts'])
 
     if dry_run?
       record_result(entry['input'], mms_id, 'would_update', nil,
