@@ -102,6 +102,8 @@ If your API key points at the **sandbox**, set `AppConfig[:alma_api_environment]
 
 The API key is sent in an `Authorization` header rather than in the query string, so it stays out of Alma's logs and out of any proxy's.
 
+Alma's General Publishing and OAI-PMH routes probably sit outside the REST allowance altogether, which makes them look like an obvious way to make the audit free. They were investigated and rejected; [docs/alma-publishing-and-oai-evaluation.md](docs/alma-publishing-and-oai-evaluation.md) records why, the short version being that published output omits suppressed records — which is exactly what this plugin creates — and carries per-profile enrichment that the diff would have to be recalibrated against.
+
 # Permissions
 
 Running a bulk update rewrites catalogue records for hundreds or thousands of titles at once, so it is worth a moment's thought about who can do it. Three options, in rough order of how much they worry me:
