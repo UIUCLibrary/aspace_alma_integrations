@@ -427,6 +427,8 @@ class AlmaBulkUpdateRunner < JobRunner
       'job_id' => @job.id
     }
     summary['stopped_early'] = stopped_early if stopped_early
+    quota = quota_summary
+    summary['alma_quota'] = quota if quota
 
     files = []
     files << attach_file(@results.file,
@@ -452,7 +454,9 @@ class AlmaBulkUpdateRunner < JobRunner
     log("Skipped:      #{@counts['skipped']}")
     log("Failed:       #{@counts['failed']}")
     log('')
-    log("Alma API calls: #{summary['alma_requests']}. Duration: #{summary['duration_seconds']}s.")
+    log("Duration: #{summary['duration_seconds']}s.")
+    describe_quota(summary['alma_quota'],
+                   :records => @counts['updated'].to_i + @counts['would_update'].to_i)
 
     if @snapshots.count > 0
       log("A snapshot of #{@snapshots.count} Alma record(s) as they stood before the update is " \

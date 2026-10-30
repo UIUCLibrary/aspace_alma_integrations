@@ -441,6 +441,91 @@ RSpec.describe AlmaIntegrations::AlmaClient do
     end
   end
 
+  describe '#quota_report' do
+    def remaining_responses(values)
+      values.map { |value| raw_response(200, '<ok/>', 'X-Exl-Api-Remaining' => value.to_s) }
+    end
+
+    it 'measures what Alma charged over the span between the first and last header' do
+      # Four requests; Alma's counter falls by one per request. The first
+      # response establishes the baseline, so three requests are measured.
+      client, = build_client(remaining_responses([1000, 999, 998, 997]))
+
+      4.times { |i| client.get('', :mms_id => "99100000#{i}") }
+      report = client.quota_report
+
+      expect(report['requests']).to eq(4)
+      expect(report['remaining_at_start']).to eq(1000)
+      expect(report['remaining_at_end']).to eq(997)
+      expect(report['requests_measured']).to eq(3)
+      expect(report['consumed']).to eq(3)
+      expect(report['per_request']).to eq(1.0)
+    end
+
+    # The question this whole measurement exists to answer: a 100-ID bib GET is
+    # either one call or a hundred, and Alma does not document which.
+    it 'reports a per-record charge when Alma bills each record in a multi-ID fetch' do
+      client, = build_client(remaining_responses([1000, 900, 800]))
+
+      3.times { |i| client.get('', :mms_id => "99100000#{i}") }
+      report = client.quota_report
+
+      expect(report['consumed']).to eq(200)
+      expect(report['requests_measured']).to eq(2)
+      expect(report['per_request']).to eq(100.0)
+    end
+
+    it 'reports requests but no measurement when Alma sends no remaining header' do
+      client, = build_client([raw_response(200, '<ok/>'), raw_response(200, '<ok/>')])
+
+      2.times { |i| client.get('', :mms_id => "99100000#{i}") }
+      report = client.quota_report
+
+      expect(report['requests']).to eq(2)
+      expect(report['remaining_at_start']).to be_nil
+      expect(report['consumed']).to be_nil
+      expect(report['per_request']).to be_nil
+    end
+
+    it 'omits the ratio when only one response carried the header' do
+      client, = build_client([raw_response(200, '<ok/>', 'X-Exl-Api-Remaining' => '500')])
+
+      client.get('', :mms_id => '991000001')
+      report = client.quota_report
+
+      expect(report['remaining_at_start']).to eq(500)
+      expect(report['remaining_at_end']).to eq(500)
+      expect(report['requests_measured']).to eq(0)
+      expect(report['per_request']).to be_nil
+    end
+
+    it 'starts the measured span at the first header, not the first request' do
+      # Alma answered the first request without the header, so that request
+      # cannot be part of the measurement.
+      client, = build_client([
+        raw_response(200, '<ok/>'),
+        raw_response(200, '<ok/>', 'X-Exl-Api-Remaining' => '400'),
+        raw_response(200, '<ok/>', 'X-Exl-Api-Remaining' => '399')
+      ])
+
+      3.times { |i| client.get('', :mms_id => "99100000#{i}") }
+      report = client.quota_report
+
+      expect(report['requests']).to eq(3)
+      expect(report['requests_measured']).to eq(1)
+      expect(report['consumed']).to eq(1)
+      expect(report['per_request']).to eq(1.0)
+    end
+
+    it 'reports nothing measurable before any request has been made' do
+      client, = build_client([])
+
+      expect(client.quota_report).to eq('requests' => 0,
+                                        'remaining_at_start' => nil,
+                                        'remaining_at_end' => nil)
+    end
+  end
+
   describe 'quota floor enforcement' do
     it 'allows responses just above and exactly at the remaining-call floor' do
       [11, 10].each do |remaining|

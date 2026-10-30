@@ -332,6 +332,8 @@ class AlmaAuditRunner < JobRunner
     summary = @summary.to_h
     summary['stopped_early'] = stopped_early if stopped_early
     summary['alma_requests'] = (@alma_client ? alma_client.request_count : 0)
+    quota = quota_summary
+    summary['alma_quota'] = quota if quota
     summary['duration_seconds'] = (Time.now - @started_at).round(1)
     summary['job_id'] = @job.id
 
@@ -402,6 +404,7 @@ class AlmaAuditRunner < JobRunner
     end
 
     log('')
-    log("Alma API calls: #{summary['alma_requests']}. Duration: #{summary['duration_seconds']}s.")
+    log("Duration: #{summary['duration_seconds']}s.")
+    describe_quota(summary['alma_quota'], :records => records['audited'].to_i)
   end
 end

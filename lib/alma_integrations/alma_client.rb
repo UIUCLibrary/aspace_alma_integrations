@@ -65,7 +65,7 @@ module AlmaIntegrations
       end
     end
 
-    attr_reader :settings, :limiter, :last_remaining
+    attr_reader :settings, :limiter, :last_remaining, :first_remaining
 
     def initialize(settings: nil, limiter: nil, logger: nil, http_factory: nil, sleeper: nil, rng: nil)
       @settings = settings || Settings.new
@@ -79,11 +79,48 @@ module AlmaIntegrations
       @mutex = Mutex.new
       @http = nil
       @last_remaining = nil
+      @first_remaining = nil
+      @first_remaining_at = nil
       @request_count = 0
     end
 
     def request_count
       @request_count
+    end
+
+    # What this client actually cost the institution, as Alma itself reports it.
+    #
+    # Alma does not document whether a 100-ID bib GET is charged as one call or
+    # as a hundred, and the difference decides whether batching saves quota or
+    # only saves time. Rather than assume, we read Alma's own counter either
+    # side of the run and report the arithmetic.
+    #
+    # X-Exl-Api-Remaining is the allowance left *after* the response carrying
+    # it, so the span between the first and last observed headers covers every
+    # request except the first. `requests` is scoped to that same span, which is
+    # what makes `per_request` a like-for-like ratio rather than an off-by-one.
+    #
+    # The counter is institution-wide, so anything else on campus using the same
+    # allowance during the run inflates `consumed`. It is an upper bound on what
+    # this job spent, not a precise measurement, and `per_request` should be
+    # read as "about 1" or "about 100" rather than to two decimal places.
+    def quota_report
+      report = {
+        'requests' => @request_count,
+        'remaining_at_start' => @first_remaining,
+        'remaining_at_end' => @last_remaining
+      }
+
+      return report if @first_remaining.nil? || @last_remaining.nil?
+
+      spanned = @request_count - @first_remaining_at
+      consumed = @first_remaining - @last_remaining
+
+      report['consumed'] = consumed
+      report['requests_measured'] = spanned
+      report['per_request'] = (consumed.to_f / spanned).round(2) if spanned > 0
+
+      report
     end
 
     def get(subpath = '', query = {})
@@ -328,7 +365,16 @@ module AlmaIntegrations
 
     def track_remaining(response)
       remaining = response.remaining
-      @last_remaining = remaining unless remaining.nil?
+      return if remaining.nil?
+
+      if @first_remaining.nil?
+        @first_remaining = remaining
+        # The request that carried the first header has already been counted, so
+        # the measured span starts here.
+        @first_remaining_at = @request_count
+      end
+
+      @last_remaining = remaining
     end
 
     def enforce_quota_floor!

@@ -177,6 +177,7 @@ en:
     errors_detail: The identifier and reason for each is in the errors section of the JSON report.
     files_heading: Files
     provenance: "This audit made %{requests} Alma API call(s) and took %{duration} seconds."
+    quota: "Alma's daily allowance fell by %{consumed} over the %{measured} request(s) it could measure, leaving %{remaining}. The allowance is shared with every other Alma integration on campus, so treat this as an upper bound on what the audit alone cost."
     error_kind:
       resource_not_found: No matching ArchivesSpace resource
       no_mms_id: Resource has no Alma MMS ID

@@ -234,5 +234,12 @@
     <%= t('alma_audit_reports.provenance',
           :requests => @summary['alma_requests'].to_i,
           :duration => @summary['duration_seconds']) %>
+    <% quota = @summary['alma_quota'] || {} %>
+    <% if quota['consumed'] && quota['requests_measured'].to_i > 0 %>
+      <%= t('alma_audit_reports.quota',
+            :consumed => quota['consumed'].to_i,
+            :measured => quota['requests_measured'].to_i,
+            :remaining => quota['remaining_at_end'].to_i) %>
+    <% end %>
   </p>
 <% end %>

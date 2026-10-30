@@ -219,5 +219,72 @@ module AlmaIntegrations
       floor = settings[:daily_quota_floor].to_i
       log("The job stops if Alma's remaining daily allowance falls below #{floor}.") if floor > 0
     end
+
+    # The quota section of a job summary. Returns nil when no Alma client was
+    # ever built, so a run that resolved nothing does not claim to have spent
+    # anything.
+    def quota_summary
+      return nil if @alma_client.nil?
+
+      alma_client.quota_report
+    end
+
+    # Reports what the run cost in Alma's own terms.
+    #
+    # The point of this is not bookkeeping. Ex Libris does not document whether
+    # a 100-ID bib GET is charged as one API call or as a hundred, and that one
+    # fact decides whether batching records into a single request saves the
+    # institution's daily allowance or merely saves time. Alma's own
+    # X-Exl-Api-Remaining counter answers it, so we print the arithmetic and let
+    # the first real run settle the question.
+    def describe_quota(quota, records: nil)
+      return if quota.nil?
+
+      requests = quota['requests'].to_i
+      log("Alma API requests made: #{requests}.")
+
+      if records && records > 0 && requests > 0
+        log("That is #{(records.to_f / requests).round(1)} record(s) per request.")
+      end
+
+      consumed = quota['consumed']
+      measured = quota['requests_measured'].to_i
+
+      if consumed.nil? || measured <= 0
+        log('Alma did not report a remaining daily allowance, so the quota actually ' \
+            'consumed could not be measured.')
+        return
+      end
+
+      log("Alma's remaining daily allowance went from #{quota['remaining_at_start']} to " \
+          "#{quota['remaining_at_end']}: #{consumed} call(s) over the #{measured} request(s) " \
+          'spanned by those two readings.')
+
+      per_request = quota['per_request']
+      return if per_request.nil?
+
+      log("That is about #{per_request} call(s) of quota per request.")
+      log(interpret_per_request(per_request))
+      log('Alma counts the whole institution against one allowance, so anything else on ' \
+          'campus using the API during this run is included in that figure.')
+    end
+
+    # Alma's answer to the question, in words. Deliberately hedged: the counter
+    # is institution-wide, so a busy campus can push the ratio above 1 without
+    # the multi-record GET costing any more than a single-record one.
+    def interpret_per_request(per_request)
+      if per_request <= 1.5
+        'A multi-record fetch appears to cost the same as a single-record one, so fetching ' \
+        'in batches is saving quota as intended.'
+      elsif per_request >= 10
+        'A multi-record fetch appears to be charged per record rather than per request. ' \
+        'Batching is still saving time, but not quota -- an out-of-band export (Alma ' \
+        'publishing or OAI-PMH) would be the way to cut the cost of large audits.'
+      else
+        'That is higher than one call per request but well short of one per record. Other ' \
+        'API traffic on campus during the run is the likeliest explanation; re-check on a ' \
+        'quieter run before drawing a conclusion.'
+      end
+    end
   end
 end
