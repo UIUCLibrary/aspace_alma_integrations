@@ -131,7 +131,17 @@ module AlmaIntegrations
       # Indicators for the 956. 956 is a locally defined field, so these are
       # institutional practice rather than MARC law; the default mirrors the
       # 4/2 ArchivesSpace itself uses for the finding aid 856.
-      :arclight_indicators         => '42'
+      :arclight_indicators         => '42',
+
+      # --- Holdings and items -----------------------------------------------
+      # Alma library codes (852 $b) whose locations are offered when adding a
+      # holding, read live from the Alma Configuration API. Empty means the
+      # static AppConfig[:alma_holdings] list is used on its own.
+      :holdings_libraries          => [].freeze,
+
+      # Alma item policy code given to items the plugin creates. nil leaves the
+      # field unset, so circulation is governed by the location alone.
+      :item_policy                 => nil
     }.freeze
 
     # Alma's sandbox is reported to allow roughly a tenth of production's
@@ -151,6 +161,9 @@ module AlmaIntegrations
       preserved = app_config(:alma_marc_fields_to_preserve)
       values[:preserved_tags] = Array(preserved).map(&:to_s) unless preserved.nil?
 
+      libraries = app_config(:alma_holdings_libraries)
+      values[:holdings_libraries] = Array(libraries).map { |lib| lib.to_s.strip }.reject(&:empty?) unless libraries.nil?
+
       mms_field = app_config(:alma_mms_id_field)
       values[:mms_field] = mms_field.to_s unless mms_field.nil?
 
@@ -169,7 +182,8 @@ module AlmaIntegrations
         :arclight_base_url    => :alma_arclight_base_url,
         :arclight_id_source   => :alma_arclight_id_source,
         :arclight_link_text   => :alma_arclight_link_text,
-        :arclight_indicators  => :alma_arclight_indicators
+        :arclight_indicators  => :alma_arclight_indicators,
+        :item_policy          => :alma_item_policy
       }.each do |key, app_config_key|
         value = app_config(app_config_key)
         values[key] = value unless value.nil?

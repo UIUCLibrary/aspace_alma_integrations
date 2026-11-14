@@ -35,12 +35,16 @@ if AlmaFixtures.enabled?
   module AlmaStubResponses
     # is_a?(Net::HTTPSuccess) is what the plugin tests, so this has to be a real
     # response object rather than something that merely looks like one.
-    def self.ok(body)
+    def self.ok(body, content_type = 'application/xml;charset=UTF-8')
       response = Net::HTTPOK.new('1.1', '200', 'OK')
       response.instance_variable_set(:@body, body)
       response.instance_variable_set(:@read, true)
-      response.add_field('Content-Type', 'application/xml;charset=UTF-8')
+      response.add_field('Content-Type', content_type)
       response
+    end
+
+    def self.json(body)
+      ok(body, 'application/json;charset=UTF-8')
     end
   end
 
@@ -53,12 +57,26 @@ if AlmaFixtures.enabled?
 
       def get(uri, opts = {})
         base = AppConfig.has_key?(:alma_api_url) ? AppConfig[:alma_api_url].to_s : ''
-        return get_without_alma_stub(uri, opts) if base.empty? || !uri.to_s.start_with?(base)
-
-        rest = uri.to_s[base.length..-1].to_s.split('?').first.to_s.sub(%r{\A/}, '')
-        return AlmaStubResponses.ok('<holdings total_record_count="0"/>') if rest.end_with?('holdings')
+        return get_without_alma_stub(uri, opts) if base.empty?
 
         query = URI.decode_www_form(uri.query.to_s).to_h
+
+        # The Configuration API sits beside /bibs, not under it.
+        library = uri.path[%r{/conf/libraries/([^/]+)/locations\z}, 1]
+        if library && uri.to_s.start_with?(base.sub(%r{/bibs/*\z}, ''))
+          body = AlmaFixtures.locations_json(URI.decode_www_form_component(library))
+          return body.nil? ? get_without_alma_stub(uri, opts) : AlmaStubResponses.json(body)
+        end
+
+        return get_without_alma_stub(uri, opts) unless uri.to_s.start_with?(base)
+
+        rest = uri.to_s[base.length..-1].to_s.split('?').first.to_s.sub(%r{\A/}, '')
+        if rest.end_with?('holdings', 'items')
+          # The plugin asks for these as JSON and parses them as JSON.
+          return AlmaStubResponses.json('{"total_record_count":0}') if query['format'] == 'json'
+          return AlmaStubResponses.ok('<holdings total_record_count="0"/>')
+        end
+
         ids = rest.empty? ? query['mms_id'].to_s.split(',') : [rest]
 
         xml, = AlmaFixtures.bibs_xml(ids)

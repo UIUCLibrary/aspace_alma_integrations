@@ -32,10 +32,20 @@ AppConfig[:alma_api_url] = 'https://api-na.hosted.exlibrisgroup.com/almaws/v1/bi
 # the Ex Libris Developer Network.
 AppConfig[:alma_apikey] = 'REPLACE_WITH_YOUR_SANDBOX_KEY'
 
-# Building and location codes used when creating holdings: [852$b, 852$c].
+# Alma libraries whose locations are offered when creating holdings, read
+# from the Alma Configuration API (the key needs read access to it).
+AppConfig[:alma_holdings_libraries] = ['ARCHIVES']
+
+# Fallback when no library above can be read: [852$b, 852$c, optional name].
 AppConfig[:alma_holdings] = [
-  ['MAIN', 'STACKS']
+  ['ARCHIVES', 'uaros', 'Oak Street Vaults – Archival Boxes']
 ]
+
+# Alma item policy code for new items. Leave unset to let the location decide.
+# AppConfig[:alma_item_policy] = 'REPLACE_WITH_POLICY_CODE'
+
+# Arclight instance the MARC 956 links to.
+AppConfig[:alma_arclight_base_url] = 'https://arclight.archivesspace-stage.library.illinois.edu'
 
 # MARC fields carried over from the existing Alma record on push.
 AppConfig[:alma_marc_fields_to_preserve] = ['035']

@@ -168,6 +168,7 @@ class AlmaIntegrator
 				holdings.each do |holding|
 					h = {
 						'id' => holding['holding_id'],
+						'library' => holding.dig('library', 'value'),
 						'code' => holding['location']['value'],
 						'name' => holding['location']['desc']
 					}
@@ -178,6 +179,45 @@ class AlmaIntegrator
 		end
 
 		results
+  end
+
+  # The locations offered when adding a holding: every location in each
+  # library listed in AppConfig[:alma_holdings_libraries], read from Alma, or
+  # the static AppConfig[:alma_holdings] list when that is not configured or
+  # Alma cannot be read. Returns [locations, warnings].
+  def holding_locations
+    warnings = []
+    locations = []
+
+    Array(settings[:holdings_libraries]).each do |library|
+      url = AlmaIntegrations::HoldingLocations.locations_url(@baseurl, library)
+      next if url.nil?
+
+      uri = URI(url)
+      uri.query = URI.encode_www_form({:apikey => @key, :format => 'json'})
+      begin
+        response = AlmaRequester.new.get(uri, :use_ssl => uri.scheme == 'https')
+        if response.is_a?(Net::HTTPSuccess)
+          locations.concat(AlmaIntegrations::HoldingLocations.from_alma(library, response.body))
+        else
+          warnings << I18n.t("plugins.alma_integrations.holdings_form.locations_failed",
+                             :library => library,
+                             :error => AlmaIntegrations::ErrorParser.describe(response.body, response.code))
+        end
+      rescue StandardError => e
+        warnings << I18n.t("plugins.alma_integrations.holdings_form.locations_failed",
+                           :library => library, :error => e.message)
+      end
+    end
+
+    if locations.empty?
+      locations = AlmaIntegrations::HoldingLocations.from_config(
+        AppConfig.has_key?(:alma_holdings) ? AppConfig[:alma_holdings] : [],
+        :translate => lambda { |code| I18n.t("plugins.alma_integrations.holdings.#{code}", :default => '') }
+      )
+    end
+
+    [locations, warnings]
   end
 
   def get_aspace_item_data(barcode)

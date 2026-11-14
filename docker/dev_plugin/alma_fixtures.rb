@@ -28,6 +28,15 @@ module AlmaFixtures
     File.read(candidate, :encoding => 'UTF-8').sub(/\A<\?xml[^>]*\?>\s*/, '')
   end
 
+  # Alma's JSON location list for a library: locations-<LIBRARY>.json, or
+  # locations.json for any library without its own file. nil when neither
+  # exists, so the request goes to the real Alma.
+  def self.locations_json(library)
+    candidates = [File.join(dir, "locations-#{File.basename(library.to_s)}.json"), File.join(dir, 'locations.json')]
+    path = candidates.find { |candidate| File.file?(candidate) }
+    path.nil? ? nil : File.read(path, :encoding => 'UTF-8')
+  end
+
   # The <bibs> envelope Alma returns. The mms_id element matters: the
   # multi-record fetch keys off it to tell the records apart.
   def self.bibs_xml(mms_ids)
