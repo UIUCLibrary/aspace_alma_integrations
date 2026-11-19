@@ -28,6 +28,10 @@ module AlmaIntegrations
     # imported from EAD, is commonly stored as the reference `&amp;`. The MARC
     # exporter escapes that text again rather than decoding it, so the record
     # carries the literal characters "&amp;" and Alma would display them.
+    # (ArchivesSpace v4.1.1-v4.2.1, backend/app/exporters/serializers/marc21.rb:
+    # `xml.text sf.text.gsub(/<[^>]*>/, ' ')`.) If ArchivesSpace starts decoding
+    # there, this must go: spec/aspace_marc_export_compensation_spec.rb pins the
+    # difference, and the upstream-marc-canary CI job warns when that line changes.
     ENTITY = /&(amp|lt|gt|quot|apos|#\d+|#x\h+);/i.freeze
     NAMED_ENTITIES = { 'amp' => '&', 'lt' => '<', 'gt' => '>', 'quot' => '"', 'apos' => "'" }.freeze
 
