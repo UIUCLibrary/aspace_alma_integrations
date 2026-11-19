@@ -237,7 +237,7 @@ LDR  .....nv..a22.....1n.4500      (06 v: multipart item holdings)
 852 8_ $b <library> $c <location> $h <EAD ID>
 ```
 
-The call number is the Resource's EAD ID as written, dots included, under "other scheme" (first indicator `8`); a Resource without an EAD ID uses its identifier, joined with dots. The form shows the call number that will be used. Upon selecting a location and clicking the “Add” button, ArchivesSpace will attempt to post the new holdings to Alma, then return to the plugin index page. If successful, the new Holdings ID will be returned; if not, the plugin will return the error message returned by the Alma API.
+The call number is the Resource's EAD ID as written, dots included, under "other scheme" (first indicator `8`); a Resource without an EAD ID uses its identifier, joined with dots. The form shows the call number that will be used, and a note saying where the location list came from; when it is not from Alma, the note gives the reason (setting not configured, HTTP status and Alma's error, or an empty or unexpected response), and the same messages are written to the frontend log prefixed `[alma_integrations] holding locations:`. The form is not offered for a Resource with no MMS ID. Upon selecting a location and clicking the “Add” button, ArchivesSpace will attempt to post the new holdings to Alma, then return to the plugin index page. If successful, the new Holdings ID will be returned; if not, the plugin will return the error message returned by the Alma API.
 
 ![Holdings results from the Alma Integrations plugin](docs/plugin_holdings.png)
 
@@ -248,6 +248,12 @@ Currently a search for the Item record type returns a list of items attached to 
 ![Item results from the Alma Integrations plugin](docs/plugin_items.png)
 
 # Future Development
+
+## Pending: live holdings locations from Alma
+
+Reading holdings locations from Alma (`AppConfig[:alma_holdings_libraries]`) has not yet been tested against a real Alma instance. Testing is blocked until the API key is granted **Configuration – Read** in the Ex Libris Developer Network; the Bibs API permission the rest of the plugin uses does not cover the location list. Until then the Add Holdings form falls back to `AppConfig[:alma_holdings]` and says why (see [Resource Holdings](#resource-holdings)).
+
+Undecided: whether the live lookup should be opt-in, as now, or on by default for the library codes already listed in `AppConfig[:alma_holdings]`, with `AppConfig[:alma_holdings_libraries]` overriding that list and `[]` turning the lookup off. Either way each library offers all of its Alma locations; the choice is only whether a curated `AppConfig[:alma_holdings]` list is replaced without opting in. Revisit once the key can be tested.
 
 Requests for new features and bug fixes can be filed as [Issues](https://github.com/duspeccoll/alma_integrations/issues).
 
