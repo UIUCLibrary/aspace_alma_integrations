@@ -2,6 +2,14 @@ require 'advanced_query_builder'
 
 class AlmaIntegrationsController < ApplicationController
 
+  # ArchivesSpace does not autoload a plugin's frontend/helpers directory, so the
+  # MARC comparison helpers live in frontend/models and are attached here. This
+  # has to happen in the controller rather than in plugin_init.rb: plugin_init
+  # runs while the Rails application is still being defined, before
+  # ApplicationController exists, and referring to it there takes the whole
+  # frontend down at boot.
+  helper AlmaMarcDiffHelper
+
   set_access_control "view_repository" => [:index, :search, :add_bibs, :add_holdings, :add_items]
 
   def index
@@ -11,9 +19,18 @@ class AlmaIntegrationsController < ApplicationController
     if params['resource'].nil? && params['ref'].nil?
     	flash[:error] = "Error: No resource selected"
     	redirect_to :action => :index
+      return
     end
 
     params['ref'] = params['resource']['ref'] if params['ref'].nil?
+    params['record_type'] = 'bibs' if params['record_type'].blank?
+
+    # Links from an audit report ask for the differences to be showing when the
+    # screen opens; the form posts do not, so the default stays off.
+    # ActiveRecord is not loaded in the ArchivesSpace frontend, so no
+    # Type::Boolean here.
+    @show_diff = %w[1 true yes on].include?(params['diff'].to_s.strip.downcase)
+
     @results = do_search(params)
     @holdings = AppConfig[:alma_holdings] if params['record_type'] == 'holdings'
     if params['record_type'] == 'items'
@@ -67,7 +84,7 @@ class AlmaIntegrationsController < ApplicationController
 
   	results['results'] = case params['record_type']
   	when "bibs"
-  		integrator.search_bibs(ref, results['mms'])
+  		integrator.search_bibs(ref, results['mms'], json)
   	when "holdings"
   		integrator.search_holdings(results['mms'])
   	when "items"

@@ -11,7 +11,7 @@ Additionally, the integrations allow a user to add new holdings, create a new BI
 
 ## For your Resource record
 
-You will need to have a data element in your ArchivesSpace Resources assigned to the MMS IDs for their Alma bibliographic records, so that the API calls have an identifier against which to check. The University of Denver records MMS IDs in User Defined String 2; for now, this plugin assumes you also do this. Future development will allow this field to be configured on a per-instance basis.
+You will need to have a data element in your ArchivesSpace Resources assigned to the MMS IDs for their Alma bibliographic records, so that the API calls have an identifier against which to check. The default is User Defined String 2, which is also what the University of Denver uses, but this is now configurable via **AppConfig[:alma_mms_id_field]** (see below). The plugin also relabels that field in the staff interface so it reads "Alma MMS ID" rather than "String 2", which saves explaining to every cataloguer why the MMS ID lives in an anonymously-named box.
 
 ## For your config.rb file
 
@@ -21,6 +21,186 @@ You will need to add three required configuration settings and one optional sett
 * **AppConfig[:alma_apikey]** is the specific API key you use to access the Alma APIs. You may need to consult with your library IT department to access an API key to use for this plugin. If you would like to test API calls against the Alma sandbox, you may request a personal API key through the Alma Developer Network; instructions for this may be found [here](https://developers.exlibrisgroup.com/alma/apis#logging).
 * **AppConfig[:alma_holdings]** is an array of the building and location codes in place at your institution. Each item in the array is itself an array, consisting of a building code (`852$b`) and a location code (`852$c`). These are added to the 852 field of the holdings records that the plugin creates.
 * **AppConfig[:alma_marc_fields_to_preserve]** *(optional)* is an array of MARC field tags (as strings) whose values should be carried over from the existing Alma record into the ASpace-generated record before pushing to Alma. Use this to prevent locally significant Alma-managed fields from being overwritten. For example, `['035']` will preserve OCLC system control numbers stored in Alma's 035 field. When a tag is listed here, all instances of that field are removed from the ASpace record and replaced with the corresponding fields from Alma. The MARC 008 "Date Entered on File" (positions 00–05) is always preserved regardless of this setting.
+
+### Optional settings for the bulk audit and bulk update
+
+Every one of these has a working default; you only need to set the ones you want to change.
+
+| Setting | Default | What it does |
+|---|---|---|
+| `AppConfig[:alma_mms_id_field]` | `'string_2'` | Which Resource user-defined field holds the MMS ID. One of `string_1`–`string_4` or `text_1`–`text_5`. |
+| `AppConfig[:alma_requests_per_second]` | `19` | Ceiling for requests to Alma. Ex Libris governs **per institution**, not per API key, so this leaves headroom for your other campus integrations. |
+| `AppConfig[:alma_api_environment]` | `'production'` | Set to `'sandbox'` when the API key points at a sandbox instance. Sandbox is governed far more tightly, and a request Alma rejects for going too fast still costs a call, so this lowers the rate ceiling to 8/second. Nothing can detect this for you: production and sandbox share a hostname and only the key tells them apart. |
+| `AppConfig[:alma_daily_quota_floor]` | `1000` | Stop a job when Alma's reported remaining daily calls drops below this. Prevents an audit from consuming the institution's whole daily quota. |
+| `AppConfig[:alma_max_retries]` | `5` | Retries for a throttled or transient failure, with exponential backoff plus jitter. |
+| `AppConfig[:alma_open_timeout]` | `15` | Seconds to wait for a connection. |
+| `AppConfig[:alma_read_timeout]` | `120` | Seconds to wait for a response. |
+| `AppConfig[:alma_bulk_fetch_size]` | `100` | MMS IDs per bulk `GET /bibs` call. 100 is Alma's documented maximum. |
+| `AppConfig[:alma_audit_ignored_tags]` | `['001', '003', '005']` | Tags excluded from the headline summary because they differ mechanically on every record. |
+| `AppConfig[:alma_audit_recommend_threshold]` | `0.25` | A tag lost from at least this share of records earns a place in the report's suggested `alma_marc_fields_to_preserve` list. |
+| `AppConfig[:alma_audit_store_alma_marc]` | `true` | Store each Alma MARC record as fetched, inside the report. This is the failsafe copy (see below). |
+| `AppConfig[:alma_audit_report_retention_days]` | `nil` | Delete audit report files older than N days. `nil` keeps them forever. Only the files are removed; job history rows are never touched. |
+| `AppConfig[:alma_include_unpublished]` | `false` | Whether generated MARC includes unpublished records. Must match whatever your single-record push uses, or the audit will describe a push you are not actually making. |
+| `AppConfig[:alma_standalone_permission]` | `false` | Register the bulk-update permission as a real, independently grantable permission instead of deriving it. See [Permissions](#permissions). |
+| `AppConfig[:alma_arclight_base_url]` | `nil` | Root URL of your Arclight instance, e.g. `'https://arclight.example.edu'`. Setting it is what switches the MARC 956 on. See [Linking to Arclight](#linking-to-arclight-marc-956). |
+| `AppConfig[:alma_arclight_id_source]` | `'auto'` | Which ArchivesSpace field the Arclight slug is built from: `auto` (EAD ID, falling back to the Resource identifier), `ead_id`, or `identifier`. |
+| `AppConfig[:alma_arclight_link_text]` | `'Finding aid online'` | Default text for the 956 `$y`. Both bulk job forms can override it for a single run. |
+| `AppConfig[:alma_arclight_indicators]` | `'42'` | The two indicators for the 956, as a two-character string. 956 is locally defined, so change this if your Alma normalisation rules expect something else. |
+
+# Linking to Arclight (MARC 956)
+
+Set `AppConfig[:alma_arclight_base_url]` and every record this plugin sends to Alma gains a MARC 956 pointing at the collection's page in Arclight. Leave it unset and nothing is added.
+
+The URL is derived rather than stored, so there is no field to maintain:
+
+```
+<base URL>/catalog/<slug>
+```
+
+where `<slug>` is Arclight's own normalised ID — the collection's EAD ID with dots turned into dashes. A Resource whose EAD ID is `UA.39.2.28` produces `https://arclight.example.edu/catalog/UA-39-2-28`. When a Resource has no EAD ID the four-part Resource identifier is used instead, joined with dots first, which is what the MARC and EAD exports do with it. `AppConfig[:alma_arclight_id_source]` pins the choice if `auto` guesses wrong for your data.
+
+The field is written as:
+
+```
+956 42 $u <URL> $y <link text>
+```
+
+The indicators mirror the `4`/`2` ArchivesSpace itself uses for the finding aid 856, and both they and the link text are configurable. The audit and bulk update forms each have an **Arclight link text** box that overrides the configured default for that run only; leave it blank to use the default.
+
+Running a push twice does not accumulate duplicate fields: an existing 956 pointing into the same Arclight instance is replaced, and a 956 pointing anywhere else is left alone.
+
+Two things worth knowing before you turn it on:
+
+* **The audit will report a 956 addition on every record**, because the outgoing record now has a field the Alma record does not. That is truthful rather than noisy — it is exactly what the push would do — but if you would rather it stayed out of the headline counts, add `'956'` to `AppConfig[:alma_audit_ignored_tags]`. It will still appear in the per-record detail.
+* **Only collection-level links are produced.** ArchivesSpace's MARC export emits one bib record per Resource and no component records, so there is nowhere for a component link to go. Arclight's component URLs (`<base>/catalog/<slug>_aspace_<ref id>`) are supported by the underlying code and will be used if component-level MARC is ever exported.
+
+# Bulk audit and bulk update
+
+Two ArchivesSpace background jobs handle work across many records at once. Because they are native jobs, you do not have to sit on a page waiting: close the tab, come back later, and the run is in your job list with its status, owner, timestamps, a tailing log, a cancel button, and downloadable output.
+
+## Auditing before you update
+
+**Create Job → Alma Audit.** Give it a list of records, either pasted into the form or uploaded as a file — one identifier per line, or a CSV/TSV column. Identifiers can be:
+
+* an **MMS ID**, matched against the configured user-defined field;
+* an **EAD ID**, matched against the Resource's `ead_id`;
+* a **resource identifier** (`id_0`, or the full identifier), matched against the Resource's identifier.
+
+By default the job classifies each line on its own, but you can force a single type on the form. Prefixing a line with `mms:` or `ead:` overrides the form setting for that line only.
+
+The job resolves every identifier, fetches the matching Alma records in bulk, generates the MARC ArchivesSpace would push, and compares them. What comes out is a JSON report with:
+
+* **Per-field loss counts** — the headline the report exists for, e.g. *"MARC 035: 1128 of 1200 records would lose data in this field."* Fields are counted separately for records that would lose the field entirely, lose some instances of it, have it changed, or gain it.
+* **Recommended additions to `alma_marc_fields_to_preserve`**, derived from those loss counts. This is the practical payoff: the report tells you which fields to protect before you push anything.
+* **Per-record detail**, down to individual subfields and to positions within the 008 and leader.
+* **Error rows** for anything that could not be audited — an identifier that matched no resource, matched more than one, had no MMS ID, or that Alma rejected. These are first-class rows in the report, not silent omissions, so the counts always add up.
+
+The report page shows the summary, lets you drill into individual records, and offers the full JSON as a download.
+
+### What is deliberately left out of the headline
+
+Control fields — the leader and the 001, 003, 005 and most of the 008 — differ between Alma and ArchivesSpace on essentially every record, for mechanical reasons that have nothing to do with catalogue content. Counting them would bury the differences you actually care about. They are excluded from the summary tables and the report page says so explicitly; **the differences themselves are still recorded in full in the JSON**, so nothing is hidden, and you can change the list with `AppConfig[:alma_audit_ignored_tags]`.
+
+## Running the bulk update
+
+From the report page, "Run the bulk update" creates an **Alma Bulk Update** job that carries the audit's ID with it. The update works from the audit's resolved list, so the records it touches are exactly the records you reviewed.
+
+Safety rails, all on by default:
+
+* **A prior audit is required.** Skipping it needs an explicit override on the form.
+* **Dry run** defaults to on, so the first run of any list does everything except send the PUTs.
+* **Staleness checks.** Between the audit and the update, someone may have edited the record in Alma or in ArchivesSpace. The job compares Alma's 005 and the ArchivesSpace `lock_version` against the values captured at audit time, and additionally passes Alma's own `stale_version_check` on the PUT, so Alma itself rejects a record that moved underneath us. Stale records are held back and reported rather than overwritten.
+
+  Alma's check works by comparing the 005 in the record you send against the 005 it holds, and ArchivesSpace's MARC exporter does not emit an 005 at all. The update therefore stamps the outgoing record with the 005 read from the Alma record it is about to replace. Without that stamp the check would be inert, which is worth knowing if you ever turn `stale_version_check` off: doing so removes a real protection, not a redundant one, and it also forces the job back to reading records one at a time (see below).
+
+  If an Alma record has no 005 of its own, there is nothing to stamp and nothing for Alma to compare, so that record cannot rely on the check at all. Rather than write it from a batched or reused copy that nothing has verified, the job reads it again on its own and writes from that, and says how many records this happened to.
+* **The failsafe copy.** Every Alma MARC record fetched during the audit is stored verbatim in the report, and the update job takes a fresh snapshot of each record immediately before overwriting it. If an update turns out to have been a mistake, the previous state of the catalogue record is on disk, not merely in Alma's history.
+* **Network Zone records are held back by default.** If a bib is an Institution Zone record linked to a shared Network Zone record, a PUT replaces only the local fields, so a straightforward "Alma minus ArchivesSpace" reading of the diff would overstate the loss. Rather than guess, the audit flags those records and the update skips them unless you opt in. If you know your bibs are IZ-only, you can turn this off.
+
+## Rate limiting
+
+The Alma API is governed per second across your whole institution, and there is a daily call quota that this plugin shares with every other Alma integration on campus. An audit of a few thousand records could comfortably starve all of them, so:
+
+* requests pass through a shared token bucket, defaulting to 19/second across the whole ArchivesSpace process;
+* bibs are fetched **100 at a time** via Alma's multi-ID `GET /bibs`, which turns a 1,200-record audit into about 12 calls rather than 1,200 — the audit is essentially free against your quota, and only the update (one PUT per record, unavoidable) is expensive;
+* the bulk update batches its reads the same way, so a 1,200-record update costs about 1,212 calls rather than 2,400. This is why `stale_version_check` matters beyond correctness: batching means the last record in a batch is written up to a hundred updates after it was read, and Alma's version check is what makes that window safe. With the check turned off the job reads one record at a time instead, keeping the window narrow at twice the cost;
+* ticking **"Also keep those copies where a bulk update can reuse them"** on the audit, and **"Write from the records the audit already read"** on the update, removes the update's read entirely: one call per record. Both are off by default. The first inflates the audit's working file; the second writes from a snapshot taken when the audit ran rather than moments before the write, which is sound only because Alma's version check rejects anything that has moved since — and will therefore report more skipped records the longer you leave it between auditing and updating;
+* a `PER_SECOND_THRESHOLD` rejection backs off with jitter and retries;
+* the remaining-calls figure Alma returns on every response is watched, and the job stops cleanly if it falls below your configured floor;
+* a `DAILY_THRESHOLD` rejection stops the job with a resumable checkpoint. It deliberately does **not** sleep until midnight: ArchivesSpace runs two job threads by default, and a job that sleeps for hours would occupy half your job capacity.
+
+Every job ends by reporting what it cost: the number of requests it made, and the drop in the `X-Exl-Api-Remaining` figure Alma returns on each response. Those two numbers are not the same thing. Ex Libris does not document whether a 100-ID bib `GET` is charged as one call or as a hundred, so the first real run of an audit answers that for your institution, and the job log says what the answer implies. The counter is institution-wide, so some of any drop will be other people's traffic — treat it as an upper bound.
+
+If your API key points at the **sandbox**, set `AppConfig[:alma_api_environment] = 'sandbox'`. Sandbox is governed much more tightly than production, and a request Alma rejects for arriving too fast still costs a call, so a production-tuned run against the sandbox spends real quota on nothing. Nothing can detect this for you: both instances answer on the same hostname and only the key tells them apart.
+
+The API key is sent in an `Authorization` header rather than in the query string, so it stays out of Alma's logs and out of any proxy's.
+
+Alma's General Publishing and OAI-PMH routes probably sit outside the REST allowance altogether, which makes them look like an obvious way to make the audit free. They were investigated and rejected; [docs/alma-publishing-and-oai-evaluation.md](docs/alma-publishing-and-oai-evaluation.md) records why, the short version being that published output omits suppressed records — which is exactly what this plugin creates — and carries per-profile enrichment that the diff would have to be recalibrated against.
+
+# Permissions
+
+Running a bulk update rewrites catalogue records for hundreds or thousands of titles at once, so it is worth a moment's thought about who can do it. Three options, in rough order of how much they worry me:
+
+* **Reuse `update_resource_record`.** Convenient, and wrong: it means anyone who can edit a finding aid can also rewrite the library catalogue in bulk. Those are not the same trust level.
+* **Reuse `manage_repository`.** Narrow enough to be safe, but it conflates catalogue-push authority with unrelated repository administration, and it cannot be granted on its own.
+* **A dedicated permission, `update_alma_records`.** Says what it means, and can be reasoned about independently.
+
+This plugin takes the third option, and by default registers it as a *derived* permission implied by `manage_repository`. That gives you a meaningful, self-documenting permission code with **no database footprint at all** — ArchivesSpace resolves derived permissions in memory, so nothing is written to the `permission` table and uninstalling the plugin leaves nothing behind. The trade-off is that it travels with `manage_repository` and cannot be granted separately.
+
+If you want to grant bulk-update rights to a group that should *not* have full repository management, set `AppConfig[:alma_standalone_permission] = true`. The permission is then created as a real row and appears in the group edit form like any other. See the next section for what that writes and how to undo it.
+
+# Database footprint
+
+Short version: **this plugin adds no migrations, no tables and no columns, and in its default configuration writes no permanent rows of its own.**
+
+* **No schema changes.** There are no migrations in this plugin. Nothing is altered about the ArchivesSpace database structure, so there is nothing to roll back and no schema state to get stuck in. Uninstalling is removing the plugin directory and its `AppConfig[:plugins]` entry.
+* **The permission, by default, touches nothing.** `Permission.define(..., :implied_by => 'manage_repository')` returns before it reaches the database; ArchivesSpace keeps derived permissions in an in-process list rebuilt at every boot. Remove the plugin and the permission ceases to exist. There is no residue and no cleanup step.
+* **The permission, if you opt in to `:alma_standalone_permission`,** inserts a single row into `permission` (find-or-create, so restarts do not duplicate it), and one row in `group_permission` for each group you grant it to. If you later remove the plugin, an orphaned permission row is harmless — ArchivesSpace treats an unknown permission code as "denied" and does not error on it — but if you want it gone, note that `group_permission` has no `ON DELETE CASCADE`, so delete the grants first:
+
+  ```sql
+  DELETE FROM group_permission
+   WHERE permission_id = (SELECT id FROM permission WHERE permission_code = 'update_alma_records');
+  DELETE FROM permission WHERE permission_code = 'update_alma_records';
+  ```
+
+  Take a backup first, as with any manual statement against a production database.
+* **Job runs are ordinary ArchivesSpace data.** Audits and updates create rows in `job` and `job_input_file` through the standard job-creation path, exactly as a CSV import or a report does. They are deleted the same way, through the ArchivesSpace interface.
+* **Retention is off unless you turn it on.** With `AppConfig[:alma_audit_report_retention_days]` set, a sweep runs when a job starts. It only considers this plugin's own job types, only finished ones, and it deletes **files**, never job history rows — so the record that an audit happened, who ran it, and what it found in summary survives even after the full JSON is aged out. ArchivesSpace's own job deletion leaves output files on disk, which is why this cleanup exists at all.
+* **The bulk update never writes to `resource` or `user_defined`.** Unlike the single-record push, which can create a new Alma bib and then write its MMS ID back to the Resource, the bulk update refuses to act on a record with no MMS ID and records it as an error instead. Its only writes are to Alma.
+
+The risk I would actually keep an eye on is not the database: it is Alma. The database changes here are nil-to-trivial and reversible with a two-line SQL statement. Overwriting catalogue records is neither, which is why the audit, the dry run, the staleness checks and the stored MARC snapshots are all on by default.
+
+# Development
+
+The shared library under `lib/` is plain Ruby with no ArchivesSpace dependencies, so it can be tested without a running instance:
+
+```
+BUNDLE_GEMFILE=spec/Gemfile bundle install
+BUNDLE_GEMFILE=spec/Gemfile bundle exec rspec
+```
+
+The test manifest is `spec/Gemfile`, not a `Gemfile` in the plugin root, and that is deliberate. ArchivesSpace evaluates every `plugins/*/Gemfile` into its own bundle when it boots, so a Gemfile here is not a private development file: its version constraints are resolved together with ArchivesSpace's. Declaring a gem that ArchivesSpace already pins, at a different version, makes Bundler refuse to resolve and ArchivesSpace refuse to start — with a stack trace that points at ArchivesSpace's Gemfile rather than at the plugin. CI fails the build if a `Gemfile` reappears in the plugin root. Only add one if the plugin genuinely needs a gem at runtime, and then pin it compatibly with the ArchivesSpace release you are targeting.
+
+The suite covers the parts where a quiet mistake would be expensive: the MARC diff engine, the field preserver, the rate limiter, Alma error parsing, identifier parsing, and the report builder. It runs on every push via GitHub Actions.
+
+## A local ArchivesSpace to test against
+
+The unit tests deliberately do not need ArchivesSpace, but the job runners, the forms and the report page do. [`docker/`](docker/README.md) contains a Docker Compose stack that runs ArchivesSpace, MySQL and Solr locally with this plugin mounted, so you can test against a copy of a real repository rather than an empty database.
+
+```
+cd docker
+cp .env.example .env
+cp config/config.rb.example config/config.rb   # edit: Alma sandbox API key
+```
+
+Then copy a database dump and, optionally, a Solr index down from an existing server into `docker/data/` — [`docker/README.md`](docker/README.md) says which directories to take and where to put them — and start:
+
+```
+./scripts/check-data.sh    # confirms the files are where they should be
+./scripts/up.sh --fresh
+```
+
+See [`docker/README.md`](docker/README.md) for the full walkthrough, including the Apple Silicon notes.
 
 # Using the integrations
 

@@ -1,0 +1,216 @@
+# Local ArchivesSpace for working on the Alma integrations plugin.
+#
+# The point of this file is to let you mirror a remote server: point it at a
+# mysqldump and (optionally) a copy of that server's Solr index, bind-mount
+# this plugin's source, and get a working staff interface on localhost.
+#
+#   cd docker
+#   cp .env.example .env                    # edit it
+#   cp config/config.rb.example config/config.rb
+#   ./scripts/check-data.sh                 # verify copied-down db + solr
+#   ./scripts/up.sh
+#
+# Everything is driven from .env. See README.md for the full walkthrough.
+
+name: aspace-alma
+
+services:
+
+  db:
+    image: mysql:${MYSQL_VERSION:-8.0}
+    # Deliberately NOT pinned to amd64 like the other two services. MySQL
+    # publishes linux/arm64v8 as well as linux/amd64, so on Apple Silicon this
+    # runs natively while ArchivesSpace and Solr (amd64-only) are emulated.
+    # Emulating the database too made restoring a dump several times slower for
+    # no benefit -- importing is exactly the CPU- and IO-heavy work that
+    # emulation punishes most. Empty means "let Docker pick"; see .env.example.
+    platform: ${DB_PLATFORM:-}
+    command:
+      # ArchivesSpace requires utf8mb4 end to end; getting this wrong shows up
+      # much later as mangled diacritics in MARC output, which is exactly the
+      # sort of thing this plugin's audit would then report as a difference.
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      # ArchivesSpace creates triggers during migration. With binary logging
+      # off (below) this restriction does not apply at all, but leaving it set
+      # keeps things working for anyone who turns binary logging back on.
+      - --log-bin-trust-function-creators=1
+      # A dump of a real repository restores far faster with a larger buffer.
+      - --innodb-buffer-pool-size=1G
+      # --- import speed -----------------------------------------------------
+      # This database is a disposable local mirror: it is rebuilt from
+      # data/db-dump by `up.sh --fresh`, and nothing here is the system of
+      # record. That makes crash durability worth trading for import speed,
+      # which is the slowest step of a first start.
+      #
+      # Measured on a 173MB dump, restore to accepting connections:
+      #   stock settings ............... 31s
+      #   durability relaxed only ...... 18s
+      #   binary logging off only ...... 16s
+      #   both (what we do here) ....... 14s
+      #
+      # Binary logging is the single biggest cost, and it is pure waste here:
+      # there is no replica and no point-in-time recovery to support.
+      - --skip-log-bin
+      # Let InnoDB flush once a second rather than fsyncing every transaction,
+      # and skip the doublewrite buffer. A crash mid-import can corrupt the
+      # database -- the recovery for which is `up.sh --fresh`, which is what
+      # you would do anyway.
+      - --innodb-flush-log-at-trx-commit=0
+      - --innodb-doublewrite=0
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root123}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-archivesspace}
+      MYSQL_USER: ${MYSQL_USER:-as}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-as123}
+    ports:
+      - "${MYSQL_PORT:-3306}:3306"
+    volumes:
+      - db-data:/var/lib/mysql
+      # Mounted as plain data, NOT at /docker-entrypoint-initdb.d. The
+      # entrypoint applies that directory before the server accepts network
+      # connections, which makes a large import an opaque black box: no
+      # progress, no usable error, and no way to retry without destroying the
+      # volume. scripts/load-db.sh loads it explicitly instead, once the
+      # server is up, so the load can be watched, checked and re-run.
+      - ./data/db-dump:/dump:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-root123}"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      # Restoring a large dump on first boot can take a while, and the
+      # container is not answering pings during it. This start period stops
+      # Compose declaring the database unhealthy while it is still loading.
+      start_period: 10m
+
+  solr:
+    # Built from the stock, multi-architecture solr image with ArchivesSpace's
+    # configset installed -- see solr/Dockerfile, which is a near-copy of
+    # ArchivesSpace's own. Their published image is the same thing, but
+    # linux/amd64 only; building it ourselves means Solr runs natively on
+    # Apple Silicon rather than emulated.
+    #
+    # The image is named for both versions it is built from, so changing either
+    # in .env asks for an image that does not exist yet and Compose rebuilds.
+    # Without that, bumping ASPACE_VERSION would silently keep the old
+    # configset and ArchivesSpace would fail its schema checksum on boot.
+    image: aspace-alma-solr:${ASPACE_VERSION:-4.1.1}-solr${SOLR_VERSION:-9.4.1}
+    build:
+      context: ./solr
+      dockerfile: Dockerfile
+      args:
+        ASPACE_VERSION: ${ASPACE_VERSION:-4.1.1}
+        SOLR_VERSION: ${SOLR_VERSION:-9.4.1}
+    # The image ships the ArchivesSpace configset but does not create the core,
+    # so it has to be precreated on first start. Without this you get an empty
+    # /var/solr/data and ArchivesSpace cannot reach its index.
+    #
+    # This one Solr also hosts Arclight's core, which is created by the initdb
+    # script mounted below -- solr-precreate runs run-initdb before creating
+    # its own core, so both exist before Solr starts. Two cores in one Solr is
+    # how the UIUC dev and stage servers are laid out, and it keeps everything
+    # on 8983, which is the port both Arcflow and Arclight already expect.
+    command:
+      - solr-precreate
+      - archivesspace
+      - /opt/solr/server/solr/configsets/archivesspace
+    environment:
+      # One JVM now serves both cores, so this is a little larger than Solr
+      # needs for ArchivesSpace alone.
+      SOLR_JAVA_MEM: ${SOLR_JAVA_MEM:--Xms512m -Xmx1536m}
+      # Arclight's default request handler builds a large boolean query, and
+      # the traject configs add more clauses on top. UIUC raise this on their
+      # own Arclight Solr; without it a big collection can fail to index with
+      # "too many boolean clauses" rather than anything that names the cause.
+      # It only raises a ceiling, so the ArchivesSpace core is unaffected.
+      SOLR_OPTS: ${SOLR_OPTS:--Dsolr.max.booleanClauses=2048}
+      ARCLIGHT_SOLR_CORE: ${ARCLIGHT_SOLR_CORE:-blacklight-core}
+    ports:
+      - "${SOLR_PORT:-8983}:8983"
+    volumes:
+      - solr-data:/var/solr
+      # Arclight's configset, prepared on the host by
+      # ./scripts/arclight-solr.sh, which copies it out of your Arclight
+      # checkout or downloads Arclight's own. Mounted as a configset directory
+      # (the conf/ below is deliberate) because that is the layout
+      # precreate-core expects. Read-only: Solr copies it into the core and
+      # never writes back.
+      #
+      # A bind mount cannot be conditional, so this path is always mounted.
+      # When it is empty -- the normal case for anyone not working on Arclight
+      # indexing -- the startup script notices and skips the core entirely.
+      - ./data/arclight-solr/conf:/arclight-configset/conf:ro
+      # Creates the Arclight core and adds Arcflow's is_creator field before
+      # Solr starts. See the script for why that cannot be done over the
+      # Schema API.
+      - ./solr/arclight-core.sh:/docker-entrypoint-initdb.d/10-arclight-core.sh:ro
+    healthcheck:
+      # Only ArchivesSpace's core is checked. The Arclight core is optional and
+      # the rest of the stack does not depend on it, so its absence must not
+      # hold up startup.
+      test: ["CMD-SHELL", "curl -sf http://localhost:8983/solr/archivesspace/admin/ping || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 2m
+
+  archivesspace:
+    image: archivesspace/archivesspace:${ASPACE_VERSION:-4.1.1}
+    platform: ${ASPACE_PLATFORM:-linux/amd64}
+    depends_on:
+      db:
+        condition: service_healthy
+      solr:
+        condition: service_healthy
+    environment:
+      # ArchivesSpace reads APPCONFIG_* environment variables and maps them
+      # onto AppConfig keys. These few are set here because they describe the
+      # container wiring rather than your preferences; everything else -- and
+      # notably the Alma settings -- lives in config/config.rb.
+      APPCONFIG_DB_URL: "jdbc:mysql://db:3306/${MYSQL_DATABASE:-archivesspace}?user=${MYSQL_USER:-as}&password=${MYSQL_PASSWORD:-as123}&useUnicode=true&characterEncoding=UTF-8&serverTimezone=UTC"
+      APPCONFIG_SOLR_URL: "http://solr:8983/solr/archivesspace"
+      APPCONFIG_ENABLE_INDEXER: "${ASPACE_INDEXER_ENABLED:-true}"
+      APPCONFIG_PUI_INDEXER_ENABLED: "${ASPACE_INDEXER_ENABLED:-true}"
+      JAVA_OPTS: "${ASPACE_JAVA_XMX:--Xmx2g}"
+      # Render real stack traces in the browser instead of a generic apology
+      # page. Read by docker/dev_plugin, which is mounted below. Local only.
+      ASPACE_DEBUG_EXCEPTIONS: "${ASPACE_DEBUG_EXCEPTIONS:-true}"
+      # Answer Alma API calls from docker/dev_plugin/fixtures instead of
+      # calling Alma. Empty means "really call Alma". Local only; see
+      # dev_plugin/frontend/alma_stub.rb.
+      ALMA_STUB_DIR: "${ALMA_STUB_DIR:-}"
+    ports:
+      - "${STAFF_PORT:-8080}:8080"
+      - "${PUBLIC_PORT:-8081}:8081"
+      - "${OAI_PORT:-8082}:8082"
+      - "${BACKEND_PORT:-8089}:8089"
+    volumes:
+      # The plugin itself, live from your working copy. Ruby files under
+      # frontend/ are picked up on restart; you do not need to rebuild
+      # anything, just `docker compose restart archivesspace`.
+      - ../:/archivesspace/plugins/alma_integrations:ro
+      # Your local config. This is where AppConfig[:plugins] switches the
+      # plugin on and where the Alma API credentials go.
+      - ./config/config.rb:/archivesspace/config/config.rb:ro
+      # A development-only plugin that turns on Rails' detailed exception
+      # pages. It lives here rather than in the plugin so that it cannot be
+      # enabled on a real ArchivesSpace: stack traces in the browser leak
+      # source paths and internals.
+      - ./dev_plugin:/archivesspace/plugins/alma_dev_errors:ro
+      # Job output lives here -- audit report JSON included. Keeping it on a
+      # named volume means reports survive a container restart.
+      - aspace-data:/archivesspace/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8089/ || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 40
+      # First boot runs database migrations, which on a large restored dump
+      # is genuinely slow, and slower again under emulation on Apple Silicon.
+      start_period: 15m
+
+volumes:
+  db-data:
+  solr-data:
+  aspace-data:
