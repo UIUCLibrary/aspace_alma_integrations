@@ -37,4 +37,5 @@
   </div>
 </section>
 
-<%= render partial: "add_holdings_form", locals: { results: results } %>
+<%# A holding has to hang off a BIB, so there is nothing to add it to without an MMS ID. %>
+<%= render partial: "add_holdings_form", locals: { results: results } unless @results['mms'].nil? %>

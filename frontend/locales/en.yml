@@ -272,7 +272,14 @@ en:
         call_number: "Call number (852 $h):"
         no_call_number: "None: this Resource has no EAD ID or identifier."
         no_locations: "No further locations are available. Set AppConfig[:alma_holdings_libraries] or AppConfig[:alma_holdings] in config.rb."
-        locations_failed: "Could not read the locations for Alma library %{library} (%{error}). The API key needs read access to the Alma Configuration API. When no library can be read, the locations in AppConfig[:alma_holdings] are offered instead."
+        source_alma: "Locations for library %{library} read live from Alma (%{count})."
+        source_config_unset: "Locations are from AppConfig[:alma_holdings], not Alma, because AppConfig[:alma_holdings_libraries] is not set. To read them live from Alma, set AppConfig[:alma_holdings_libraries] = %{suggestion}."
+        source_config_fallback: "No locations could be read from Alma, so the locations in AppConfig[:alma_holdings] are shown instead."
+        locations_no_url: "Could not build the Alma Configuration API URL for library %{library}; check AppConfig[:alma_api_url]."
+        locations_http_error: "Alma refused the location lookup for library %{library} (%{request}, HTTP %{status}): %{error}. A 401 or 403 usually means the API key lacks read access to the Configuration API."
+        locations_bad_response: "Alma's location lookup for library %{library} (%{request}) returned something other than a location list (Content-Type %{content_type}): %{body}"
+        locations_empty: "Alma returned no locations for library %{library} (%{request}). Check that the library code matches Alma's."
+        locations_exception: "The location lookup for library %{library} (%{request}) failed: %{error}"
       holdings:
         # Optional display names for location codes in AppConfig[:alma_holdings],
         # used only when the locations are not read from Alma. A name given as

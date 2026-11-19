@@ -33,7 +33,7 @@ class AlmaIntegrationsController < ApplicationController
 
     @results = do_search(params)
     if params['record_type'] == 'holdings'
-      @locations, @location_warnings = integrator.holding_locations
+      @locations, @location_notices = integrator.holding_locations
       @call_number = @results['call_number']
     end
     if params['record_type'] == 'items'

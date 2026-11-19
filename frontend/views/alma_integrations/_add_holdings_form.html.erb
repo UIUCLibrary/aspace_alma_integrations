@@ -6,8 +6,8 @@
 <section id="add_holdings" class="subrecord-form-dummy">
   <h3><%= I18n.t("plugins.alma_integrations.holdings_form.heading") %></h3>
   <div class="subrecord-form-container">
-    <% Array(@location_warnings).each do |warning| %>
-      <div class="alert alert-warning"><%= warning %></div>
+    <% Array(@location_notices).each do |level, message| %>
+      <div class="alert <%= level == :warning ? 'alert-warning' : 'alert-info' %>"><%= message %></div>
     <% end %>
     <%= form_tag({:controller => :alma_integrations, :action => :add_holdings}, {:class => "form-horizontal", :id => "add_holdings_form", :method => :post}) do |f| %>
       <input type="hidden" name="mms" value="<%= @results['mms'] %>"/>

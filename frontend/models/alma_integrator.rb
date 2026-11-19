@@ -184,40 +184,81 @@ class AlmaIntegrator
   # The locations offered when adding a holding: every location in each
   # library listed in AppConfig[:alma_holdings_libraries], read from Alma, or
   # the static AppConfig[:alma_holdings] list when that is not configured or
-  # Alma cannot be read. Returns [locations, warnings].
+  # Alma cannot be read.
+  #
+  # Returns [locations, notices], where each notice is [level, message] and
+  # says where the list came from and, when Alma was not used, why. The same
+  # messages go to the frontend log so a failed lookup can be diagnosed without
+  # reproducing it in the browser.
   def holding_locations
-    warnings = []
+    notices = []
     locations = []
+    libraries = Array(settings[:holdings_libraries])
+    config_entries = AppConfig.has_key?(:alma_holdings) ? AppConfig[:alma_holdings] : []
+    t = lambda { |key, opts = {}| I18n.t("plugins.alma_integrations.holdings_form.#{key}", **opts) }
 
-    Array(settings[:holdings_libraries]).each do |library|
+    if libraries.empty?
+      suggested = Array(config_entries).map { |entry| Array(entry).first.to_s.strip }.reject(&:empty?).uniq
+      notices << [:info, t.call(:source_config_unset,
+                                :suggestion => suggested.empty? ? "['ARCHIVES']" : suggested.inspect)]
+    end
+
+    libraries.each do |library|
       url = AlmaIntegrations::HoldingLocations.locations_url(@baseurl, library)
-      next if url.nil?
+      if url.nil?
+        notices << [:warning, t.call(:locations_no_url, :library => library)]
+        next
+      end
 
       uri = URI(url)
       uri.query = URI.encode_www_form({:apikey => @key, :format => 'json'})
+      request = "GET #{uri.path}"
+
       begin
         response = AlmaRequester.new.get(uri, :use_ssl => uri.scheme == 'https')
-        if response.is_a?(Net::HTTPSuccess)
-          locations.concat(AlmaIntegrations::HoldingLocations.from_alma(library, response.body))
+
+        unless response.is_a?(Net::HTTPSuccess)
+          notices << [:warning, t.call(:locations_http_error,
+                                       :library => library, :request => request, :status => response.code,
+                                       :error => AlmaIntegrations::ErrorParser.describe(response.body, response.code))]
+          next
+        end
+
+        begin
+          found = AlmaIntegrations::HoldingLocations.from_alma(library, response.body)
+        rescue StandardError
+          notices << [:warning, t.call(:locations_bad_response,
+                                       :library => library, :request => request,
+                                       :content_type => response['Content-Type'].to_s,
+                                       :body => response.body.to_s.strip[0, 200])]
+          next
+        end
+
+        if found.empty?
+          notices << [:warning, t.call(:locations_empty, :library => library, :request => request)]
         else
-          warnings << I18n.t("plugins.alma_integrations.holdings_form.locations_failed",
-                             :library => library,
-                             :error => AlmaIntegrations::ErrorParser.describe(response.body, response.code))
+          notices << [:info, t.call(:source_alma, :library => library, :count => found.length)]
+          locations.concat(found)
         end
       rescue StandardError => e
-        warnings << I18n.t("plugins.alma_integrations.holdings_form.locations_failed",
-                           :library => library, :error => e.message)
+        notices << [:warning, t.call(:locations_exception,
+                                     :library => library, :request => request, :error => "#{e.class}: #{e.message}")]
       end
     end
 
     if locations.empty?
       locations = AlmaIntegrations::HoldingLocations.from_config(
-        AppConfig.has_key?(:alma_holdings) ? AppConfig[:alma_holdings] : [],
+        config_entries,
         :translate => lambda { |code| I18n.t("plugins.alma_integrations.holdings.#{code}", :default => '') }
       )
+      notices << [:warning, t.call(:source_config_fallback)] unless libraries.empty?
     end
 
-    [locations, warnings]
+    notices.each do |level, message|
+      Rails.logger.send(level == :warning ? :warn : :info, "[alma_integrations] holding locations: #{message}")
+    end
+
+    [locations, notices]
   end
 
   def get_aspace_item_data(barcode)
