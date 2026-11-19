@@ -73,10 +73,32 @@ class AlmaIntegrator
   # of this logic would eventually disagree, and the report would start lying.
   def preserve_alma_marc_fields(aspace, alma, resource = nil)
     @preserve_result = marc_preserver.apply(aspace['content'], alma['content'])
-    arclight_link.apply(@preserve_result.record,
-                        :ead_id => resource_ead_id(resource),
-                        :identifier => resource_identifier_parts(resource))
+    href = arclight_link.apply(@preserve_result.record,
+                               :ead_id => resource_ead_id(resource),
+                               :identifier => resource_identifier_parts(resource))
+    @arclight_notice = arclight_notice(href)
     @preserve_result.to_xml(:indent => 2)
+  end
+
+  # [level, message] saying whether the Arclight 956 was added and, if not,
+  # why, so a missing link can be diagnosed from the screen and the log.
+  def arclight_notice(href)
+    t = lambda { |key, opts = {}| I18n.t("plugins.alma_integrations.arclight.#{key}", **opts) }
+    configured_url = settings[:arclight_base_url].to_s.strip
+
+    notice =
+      if href
+        [:info, t.call(:added, :url => href)]
+      elsif configured_url.empty?
+        [:info, t.call(:not_configured)]
+      elsif !arclight_link.configured?
+        [:warning, t.call(:invalid_url, :url => configured_url)]
+      else
+        [:warning, t.call(:no_identifier)]
+      end
+
+    Rails.logger.send(notice[0] == :warning ? :warn : :info, "[alma_integrations] arclight 956: #{notice[1]}")
+    notice
   end
 
   # Warnings raised while preserving fields on the most recent call, e.g. a
@@ -136,11 +158,13 @@ class AlmaIntegrator
         # Alma match.
         results['marc'] = preserve_alma_marc_fields(aspace, {}, resource)
         results['aspace_marc'] = results['marc']
+        results['arclight'] = @arclight_notice
       else
         results['alma'] = {'success' => mms}
         results['alma_marc'] = alma['content'].to_xml(indent: 2)
         results['marc'] = preserve_alma_marc_fields(aspace, alma, resource)
         results['aspace_marc'] = results['marc']
+        results['arclight'] = @arclight_notice
         results['preserve_warnings'] = preserve_warnings
       end
     end

@@ -252,6 +252,11 @@ en:
         aspace_note_fields: "The following fields have also been carried over from Alma: %{fields}."
         aspace_note_config: "To change which additional fields are preserved, update AppConfig[:alma_marc_fields_to_preserve] in your config.rb."
         alma: Alma MARC
+      arclight:
+        added: "MARC 956 added, linking to Arclight: %{url}"
+        not_configured: "No MARC 956 Arclight link was added because AppConfig[:alma_arclight_base_url] is not set."
+        invalid_url: "No MARC 956 Arclight link was added because AppConfig[:alma_arclight_base_url] (%{url}) is not an http(s) URL with a host."
+        no_identifier: "No MARC 956 Arclight link was added because this Resource has no EAD ID or identifier to build the Arclight URL from (see AppConfig[:alma_arclight_id_source])."
       marc_diff:
         toggle: Show differences
         differences_only: Differences only

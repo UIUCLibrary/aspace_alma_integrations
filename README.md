@@ -69,6 +69,8 @@ The field is written as:
 
 The indicators mirror the `4`/`2` ArchivesSpace itself uses for the finding aid 856, and both they and the link text are configurable. The audit and bulk update forms each have an **Arclight link text** box that overrides the configured default for that run only; leave it blank to use the default.
 
+The BIBs screen says whether the 956 was added to the record it shows and, if not, why (base URL not set or not a valid http(s) URL, or no EAD ID or identifier to build the link from); the same message is written to the frontend log prefixed `[alma_integrations] arclight 956:`.
+
 Running a push twice does not accumulate duplicate fields: an existing 956 pointing into the same Arclight instance is replaced, and a 956 pointing anywhere else is left alone.
 
 Two things worth knowing before you turn it on:

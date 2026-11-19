@@ -33,6 +33,10 @@
       <% end %>
       <%= I18n.t("plugins.alma_integrations.marc_headings.aspace_note_config") %>
     </p>
+    <% if results['arclight'] %>
+      <% level, message = results['arclight'] %>
+      <div class="alert <%= level == :warning ? 'alert-warning' : 'alert-info' %>" id="arclight-956-note"><%= message %></div>
+    <% end %>
     <div class="row">
       <div class="col-md-12">
         <%= render :partial => 'marc_panes',
