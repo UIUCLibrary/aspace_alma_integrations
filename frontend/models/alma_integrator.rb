@@ -73,10 +73,32 @@ class AlmaIntegrator
   # of this logic would eventually disagree, and the report would start lying.
   def preserve_alma_marc_fields(aspace, alma, resource = nil)
     @preserve_result = marc_preserver.apply(aspace['content'], alma['content'])
-    arclight_link.apply(@preserve_result.record,
-                        :ead_id => resource_ead_id(resource),
-                        :identifier => resource_identifier_parts(resource))
+    href = arclight_link.apply(@preserve_result.record,
+                               :ead_id => resource_ead_id(resource),
+                               :identifier => resource_identifier_parts(resource))
+    @arclight_notice = arclight_notice(href)
     @preserve_result.to_xml(:indent => 2)
+  end
+
+  # [level, message] saying whether the Arclight 956 was added and, if not,
+  # why, so a missing link can be diagnosed from the screen and the log.
+  def arclight_notice(href)
+    t = lambda { |key, opts = {}| I18n.t("plugins.alma_integrations.arclight.#{key}", **opts) }
+    configured_url = settings[:arclight_base_url].to_s.strip
+
+    notice =
+      if href
+        [:info, t.call(:added, :url => href)]
+      elsif configured_url.empty?
+        [:info, t.call(:not_configured)]
+      elsif !arclight_link.configured?
+        [:warning, t.call(:invalid_url, :url => configured_url)]
+      else
+        [:warning, t.call(:no_identifier)]
+      end
+
+    Rails.logger.send(notice[0] == :warning ? :warn : :info, "[alma_integrations] arclight 956: #{notice[1]}")
+    notice
   end
 
   # Warnings raised while preserving fields on the most recent call, e.g. a
@@ -136,11 +158,13 @@ class AlmaIntegrator
         # Alma match.
         results['marc'] = preserve_alma_marc_fields(aspace, {}, resource)
         results['aspace_marc'] = results['marc']
+        results['arclight'] = @arclight_notice
       else
         results['alma'] = {'success' => mms}
         results['alma_marc'] = alma['content'].to_xml(indent: 2)
         results['marc'] = preserve_alma_marc_fields(aspace, alma, resource)
         results['aspace_marc'] = results['marc']
+        results['arclight'] = @arclight_notice
         results['preserve_warnings'] = preserve_warnings
       end
     end
@@ -168,6 +192,7 @@ class AlmaIntegrator
 				holdings.each do |holding|
 					h = {
 						'id' => holding['holding_id'],
+						'library' => holding.dig('library', 'value'),
 						'code' => holding['location']['value'],
 						'name' => holding['location']['desc']
 					}
@@ -178,6 +203,86 @@ class AlmaIntegrator
 		end
 
 		results
+  end
+
+  # The locations offered when adding a holding: every location in each
+  # library listed in AppConfig[:alma_holdings_libraries], read from Alma, or
+  # the static AppConfig[:alma_holdings] list when that is not configured or
+  # Alma cannot be read.
+  #
+  # Returns [locations, notices], where each notice is [level, message] and
+  # says where the list came from and, when Alma was not used, why. The same
+  # messages go to the frontend log so a failed lookup can be diagnosed without
+  # reproducing it in the browser.
+  def holding_locations
+    notices = []
+    locations = []
+    libraries = Array(settings[:holdings_libraries])
+    config_entries = AppConfig.has_key?(:alma_holdings) ? AppConfig[:alma_holdings] : []
+    t = lambda { |key, opts = {}| I18n.t("plugins.alma_integrations.holdings_form.#{key}", **opts) }
+
+    if libraries.empty?
+      suggested = Array(config_entries).map { |entry| Array(entry).first.to_s.strip }.reject(&:empty?).uniq
+      notices << [:info, t.call(:source_config_unset,
+                                :suggestion => suggested.empty? ? "['ARCHIVES']" : suggested.inspect)]
+    end
+
+    libraries.each do |library|
+      url = AlmaIntegrations::HoldingLocations.locations_url(@baseurl, library)
+      if url.nil?
+        notices << [:warning, t.call(:locations_no_url, :library => library)]
+        next
+      end
+
+      uri = URI(url)
+      uri.query = URI.encode_www_form({:apikey => @key, :format => 'json'})
+      request = "GET #{uri.path}"
+
+      begin
+        response = AlmaRequester.new.get(uri, :use_ssl => uri.scheme == 'https')
+
+        unless response.is_a?(Net::HTTPSuccess)
+          notices << [:warning, t.call(:locations_http_error,
+                                       :library => library, :request => request, :status => response.code,
+                                       :error => AlmaIntegrations::ErrorParser.describe(response.body, response.code))]
+          next
+        end
+
+        begin
+          found = AlmaIntegrations::HoldingLocations.from_alma(library, response.body)
+        rescue StandardError
+          notices << [:warning, t.call(:locations_bad_response,
+                                       :library => library, :request => request,
+                                       :content_type => response['Content-Type'].to_s,
+                                       :body => response.body.to_s.strip[0, 200])]
+          next
+        end
+
+        if found.empty?
+          notices << [:warning, t.call(:locations_empty, :library => library, :request => request)]
+        else
+          notices << [:info, t.call(:source_alma, :library => library, :count => found.length)]
+          locations.concat(found)
+        end
+      rescue StandardError => e
+        notices << [:warning, t.call(:locations_exception,
+                                     :library => library, :request => request, :error => "#{e.class}: #{e.message}")]
+      end
+    end
+
+    if locations.empty?
+      locations = AlmaIntegrations::HoldingLocations.from_config(
+        config_entries,
+        :translate => lambda { |code| I18n.t("plugins.alma_integrations.holdings.#{code}", :default => '') }
+      )
+      notices << [:warning, t.call(:source_config_fallback)] unless libraries.empty?
+    end
+
+    notices.each do |level, message|
+      Rails.logger.send(level == :warning ? :warn : :info, "[alma_integrations] holding locations: #{message}")
+    end
+
+    [locations, notices]
   end
 
   def get_aspace_item_data(barcode)

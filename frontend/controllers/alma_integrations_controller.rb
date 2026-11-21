@@ -32,7 +32,10 @@ class AlmaIntegrationsController < ApplicationController
     @show_diff = %w[1 true yes on].include?(params['diff'].to_s.strip.downcase)
 
     @results = do_search(params)
-    @holdings = AppConfig[:alma_holdings] if params['record_type'] == 'holdings'
+    if params['record_type'] == 'holdings'
+      @locations, @location_notices = integrator.holding_locations
+      @call_number = @results['call_number']
+    end
     if params['record_type'] == 'items'
       @holdings = integrator.search_holdings(@results['mms'])
       @aspace_containers = integrator.get_resource_top_containers(params['ref'])
@@ -74,6 +77,7 @@ class AlmaIntegrationsController < ApplicationController
   		'id' => json['id_0'],
   		'ref' => ref,
   		'record_type' => params['record_type'],
+  		'call_number' => holding_call_number(json),
   	}
 
   	if json['user_defined'].nil? or json['user_defined'][mms_field].nil?
@@ -92,6 +96,15 @@ class AlmaIntegrationsController < ApplicationController
   	end
 
   	results
+  end
+
+  # The 852 $h for a Resource's holding: its EAD ID, or its identifier when it
+  # has no EAD ID.
+  def holding_call_number(json)
+    AlmaIntegrations::HoldingRecord.call_number(
+      :ead_id => json['ead_id'],
+      :identifier => (0..3).map { |i| json["id_#{i}"] }
+    )
   end
 
   def update_resource(ref, mms)
@@ -175,7 +188,8 @@ class AlmaIntegrationsController < ApplicationController
           next
         end
       else
-        data = builder.build_item(target_holding_id, barcode, container['description'], container['profile'])
+        data = builder.build_item(target_holding_id, barcode, container['description'], container['profile'],
+                                  integrator.settings[:item_policy])
       end
 
       response = if existing
@@ -213,7 +227,17 @@ class AlmaIntegrationsController < ApplicationController
   end
 
   def post_holdings(params)
-  	data = RecordBuilder.new.build_holding(params['code'], params['id'])
+  	library, location = AlmaIntegrations::HoldingLocations.parse_param(params['location'])
+  	if library.nil? || params['ref'].blank?
+  		flash[:error] = I18n.t("plugins.alma_integrations.errors.add_holdings_missing_params")
+  		redirect_to :action => :index
+  		return
+  	end
+
+  	# Recomputed from the Resource rather than trusted from the form, so the
+  	# call number is always the one this Resource currently has.
+  	call_number = holding_call_number(JSONModel::HTTP::get_json(params['ref']))
+  	data = RecordBuilder.new.build_holding(library, location, call_number)
   	response = integrator.post_holding(params['mms'], data)
 
     if response.is_a?(Net::HTTPSuccess)

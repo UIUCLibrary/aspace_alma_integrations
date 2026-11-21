@@ -63,3 +63,27 @@ jobs:
               puts "#{path} OK"
             end
           '
+
+  upstream-marc-canary:
+    # MarcPreserver#decode_entities undoes ArchivesSpace's MARC serializer
+    # escaping note text a second time. If a newer ArchivesSpace release
+    # changes that line, the compensation may now double-decode: review it and
+    # spec/aspace_marc_export_compensation_spec.rb. A warning, not a failure,
+    # because an upstream release is not something a push here can fix.
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Check the ArchivesSpace MARC serializer still double-escapes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=$(gh api repos/archivesspace/archivesspace/releases/latest -q .tag_name)
+          url="https://raw.githubusercontent.com/archivesspace/archivesspace/${tag}/backend/app/exporters/serializers/marc21.rb"
+          curl -fsSL "$url" -o marc21.rb
+          expected="xml.text sf.text.gsub(/<[^>]*>/, ' ')"
+          if grep -qF "$expected" marc21.rb; then
+            echo "ArchivesSpace ${tag}: MARC serializer unchanged; decode_entities is still needed."
+          else
+            echo "::warning title=ArchivesSpace MARC serializer changed::ArchivesSpace ${tag} no longer writes subfields with \`${expected}\`. If it now decodes entities, MarcPreserver#decode_entities will double-decode; review it against ${url}"
+            exit 1
+          fi

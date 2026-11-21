@@ -1,0 +1,7 @@
+{
+  "location": [
+    { "code": "uaros", "name": "Oak Street Vaults – Archival Boxes", "external_name": "Oak Street Vaults", "type": { "value": "OPEN", "desc": "Open Stack" } },
+    { "code": "uavlt", "name": "University Archives Vault", "external_name": "University Archives", "type": { "value": "CLOSED", "desc": "Closed Stack" } }
+  ],
+  "total_record_count": 2
+}

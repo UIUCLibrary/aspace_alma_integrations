@@ -268,6 +268,29 @@ RSpec.describe AlmaIntegrations::MarcPreserver do
     end
   end
 
+  describe 'character references in ArchivesSpace text' do
+    it 'decodes one level, so a stored &amp; reaches Alma as &' do
+      # What ArchivesSpace's exporter emits for a note stored as "Alsace &amp; Vosges".
+      aspace = marc_node(datafields: [['520', '2', ' ', [['a', 'Alsace &amp;amp; Vosges &amp;#233; &amp;amp;amp; &amp;bogus;']]]])
+
+      expect(datafield_values(apply(aspace, nil), '520', 'a')).to eq(['Alsace & Vosges é &amp; &bogus;'])
+    end
+
+    it 'leaves fields carried over from Alma exactly as Alma holds them' do
+      aspace = marc_node(datafields: [['245', '1', '0', [['a', 'Title']]]])
+      alma = marc_node(datafields: [['035', ' ', ' ', [['a', 'R&amp;amp;D']]]])
+
+      result = apply(aspace, alma, AlmaIntegrations::Settings.new(:preserved_tags => ['035']))
+      expect(datafield_values(result, '035', 'a')).to eq(['R&amp;D'])
+    end
+
+    it 'keeps a reference to a character XML cannot carry' do
+      aspace = marc_node(datafields: [['500', ' ', ' ', [['a', 'x &amp;#0; y']]]])
+
+      expect(datafield_values(apply(aspace, nil), '500', 'a')).to eq(['x &#0; y'])
+    end
+  end
+
   describe '#stamp_version' do
     def stamped(value, aspace: marc_node(controlfields: { '008' => fixed_008 },
                                          datafields: [['245', '1', '0', [['a', 'Title']]]]))

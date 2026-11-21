@@ -19,8 +19,10 @@ You will need to add three required configuration settings and one optional sett
 
 * **AppConfig[:alma_api_url]** represents the URL you use to access the Alma API. These are region-specific; find yours [here](https://developers.exlibrisgroup.com/alma/apis#calling). Note that since the plugin only uses the `/bibs` API, you will need to include "/bibs" at the end of the API URL string.
 * **AppConfig[:alma_apikey]** is the specific API key you use to access the Alma APIs. You may need to consult with your library IT department to access an API key to use for this plugin. If you would like to test API calls against the Alma sandbox, you may request a personal API key through the Alma Developer Network; instructions for this may be found [here](https://developers.exlibrisgroup.com/alma/apis#logging).
-* **AppConfig[:alma_holdings]** is an array of the building and location codes in place at your institution. Each item in the array is itself an array, consisting of a building code (`852$b`) and a location code (`852$c`). These are added to the 852 field of the holdings records that the plugin creates.
-* **AppConfig[:alma_marc_fields_to_preserve]** *(optional)* is an array of MARC field tags (as strings) whose values should be carried over from the existing Alma record into the ASpace-generated record before pushing to Alma. Use this to prevent locally significant Alma-managed fields from being overwritten. For example, `['035']` will preserve OCLC system control numbers stored in Alma's 035 field. When a tag is listed here, all instances of that field are removed from the ASpace record and replaced with the corresponding fields from Alma. The MARC 008 "Date Entered on File" (positions 00–05) is always preserved regardless of this setting.
+* **AppConfig[:alma_holdings]** is an array of the library and location codes in place at your institution. Each item in the array is itself an array, consisting of a library code (`852$b`), a location code (`852$c`) and, optionally, a display name for the drop-down, e.g. `[['ARCHIVES', 'uaros', 'Oak Street Vaults – Archival Boxes']]`. These are added to the 852 field of the holdings records that the plugin creates. When `AppConfig[:alma_holdings_libraries]` is set (see below) the locations are read from Alma instead, and this list is only a fallback.
+* **AppConfig[:alma_holdings_libraries]** *(optional)* is an array of Alma library codes, e.g. `['ARCHIVES']`. Every location in each library is read from Alma's Configuration API and offered, under Alma's own name for it, when adding a holding, so new shelving locations appear without editing `config.rb`. The API key needs **read** permission on the Configuration API, which is granted separately from the Bibs API. If no library can be read the screen says why and falls back to `AppConfig[:alma_holdings]`.
+* **AppConfig[:alma_item_policy]** *(optional)* is an Alma item policy code given to every item the plugin creates. Leave it unset if circulation is governed by the location alone.
+* **AppConfig[:alma_marc_fields_to_preserve]** *(optional)* is an array of MARC field tags (as strings) whose values should be carried over from the existing Alma record into the ASpace-generated record before pushing to Alma. Use this to prevent locally significant Alma-managed fields from being overwritten. For example, `['035']` will preserve OCLC system control numbers stored in Alma's 035 field. When a tag is listed here, all instances of that field are removed from the ASpace record and replaced with the corresponding fields from Alma. The MARC 008 "Date Entered on File" (positions 00–05) is always preserved regardless of this setting. Character references stored in ArchivesSpace text, such as the `&amp;` that notes commonly hold for an ampersand, are decoded once before the record is sent, because ArchivesSpace's MARC export escapes them a second time and Alma would otherwise display the literal `&amp;`.
 
 ### Optional settings for the bulk audit and bulk update
 
@@ -66,6 +68,8 @@ The field is written as:
 ```
 
 The indicators mirror the `4`/`2` ArchivesSpace itself uses for the finding aid 856, and both they and the link text are configurable. The audit and bulk update forms each have an **Arclight link text** box that overrides the configured default for that run only; leave it blank to use the default.
+
+The BIBs screen says whether the 956 was added to the record it shows and, if not, why (base URL not set or not a valid http(s) URL, or no EAD ID or identifier to build the link from); the same message is written to the frontend log prefixed `[alma_integrations] arclight 956:`.
 
 Running a push twice does not accumulate duplicate fields: an existing 956 pointing into the same Arclight instance is replaced, and a 956 pointing anywhere else is left alone.
 
@@ -226,9 +230,16 @@ Currently there is no way to pull changes made in Alma back into ArchivesSpace.
 
 ## Resource Holdings
 
-If the user selects Holdings as their record type, the plugin searches for all holdings records attached to the BIB with the MMS ID provided by the user in the search form. It cross-checks the results against the list of location codes provided in the `alma_holdings_codes` setting of the ArchivesSpace instance's `config.rb` file, and returns a list of the holdings found via the API, including the record ID, location code, and location name for each.
+If the user selects Holdings as their record type, the plugin searches for all holdings records attached to the BIB with the MMS ID provided by the user in the search form, and returns a list of the holdings found via the API, including the record ID, location code, and location name for each.
 
-To add new holdings, the user may select the desired holdings location from the drop-down list found in the Add New Holdings sub-record form. This list contains the location codes set in the `alma_holdings_codes` configuration setting which were not found in the holdings search. Upon selecting a location and clicking the “Add” button, ArchivesSpace will attempt to post the new holdings to Alma, then return to the plugin index page. If successful, the new Holdings ID will be returned; if not, the plugin will return the error message returned by the Alma API.
+To add new holdings, the user may select the desired holdings location from the drop-down list found in the Add New Holdings sub-record form. This list contains the locations of the libraries in `AppConfig[:alma_holdings_libraries]`, read from Alma, or else those in `AppConfig[:alma_holdings]`, less any the BIB already has a holding in. The holding is created as:
+
+```
+LDR  .....nv..a22.....1n.4500      (06 v: multipart item holdings)
+852 8_ $b <library> $c <location> $h <EAD ID>
+```
+
+The call number is the Resource's EAD ID as written, dots included, under "other scheme" (first indicator `8`); a Resource without an EAD ID uses its identifier, joined with dots. The form shows the call number that will be used, and a note saying where the location list came from; when it is not from Alma, the note gives the reason (setting not configured, HTTP status and Alma's error, or an empty or unexpected response), and the same messages are written to the frontend log prefixed `[alma_integrations] holding locations:`. The form is not offered for a Resource with no MMS ID. Upon selecting a location and clicking the “Add” button, ArchivesSpace will attempt to post the new holdings to Alma, then return to the plugin index page. If successful, the new Holdings ID will be returned; if not, the plugin will return the error message returned by the Alma API.
 
 ![Holdings results from the Alma Integrations plugin](docs/plugin_holdings.png)
 
@@ -239,6 +250,12 @@ Currently a search for the Item record type returns a list of items attached to 
 ![Item results from the Alma Integrations plugin](docs/plugin_items.png)
 
 # Future Development
+
+## Pending: live holdings locations from Alma
+
+Reading holdings locations from Alma (`AppConfig[:alma_holdings_libraries]`) has not yet been tested against a real Alma instance. Testing is blocked until the API key is granted **Configuration – Read** in the Ex Libris Developer Network; the Bibs API permission the rest of the plugin uses does not cover the location list. Until then the Add Holdings form falls back to `AppConfig[:alma_holdings]` and says why (see [Resource Holdings](#resource-holdings)).
+
+Undecided: whether the live lookup should be opt-in, as now, or on by default for the library codes already listed in `AppConfig[:alma_holdings]`, with `AppConfig[:alma_holdings_libraries]` overriding that list and `[]` turning the lookup off. Either way each library offers all of its Alma locations; the choice is only whether a curated `AppConfig[:alma_holdings]` list is replaced without opting in. Revisit once the key can be tested.
 
 Requests for new features and bug fixes can be filed as [Issues](https://github.com/duspeccoll/alma_integrations/issues).
 

@@ -19,7 +19,21 @@ module AlmaIntegrations
   #   * Every tag listed in AppConfig[:alma_marc_fields_to_preserve]. All
   #     ArchivesSpace instances of the tag are removed and the Alma instances are
   #     put in their place, in correct MARC tag order.
+  #
+  # Before either, XML character references left in the ArchivesSpace text are
+  # decoded; see #decode_entities.
   class MarcPreserver
+
+    # ArchivesSpace notes are mixed content, so an ampersand typed into one, or
+    # imported from EAD, is commonly stored as the reference `&amp;`. The MARC
+    # exporter escapes that text again rather than decoding it, so the record
+    # carries the literal characters "&amp;" and Alma would display them.
+    # (ArchivesSpace v4.1.1-v4.2.1, backend/app/exporters/serializers/marc21.rb:
+    # `xml.text sf.text.gsub(/<[^>]*>/, ' ')`.) If ArchivesSpace starts decoding
+    # there, this must go: spec/aspace_marc_export_compensation_spec.rb pins the
+    # difference, and the upstream-marc-canary CI job warns when that line changes.
+    ENTITY = /&(amp|lt|gt|quot|apos|#\d+|#x\h+);/i.freeze
+    NAMED_ENTITIES = { 'amp' => '&', 'lt' => '<', 'gt' => '>', 'quot' => '"', 'apos' => "'" }.freeze
 
     Result = Struct.new(:record, :warnings, :preserved_counts, :date_entered_preserved) do
       def to_xml(indent: 2)
@@ -40,6 +54,7 @@ module AlmaIntegrations
       return Result.new(nil, ['No ArchivesSpace MARC record to prepare.'], {}, false) if aspace.nil?
 
       aspace = aspace.dup
+      decode_entities(aspace)
       alma = record_node(alma_source)
 
       warnings = []
@@ -57,6 +72,31 @@ module AlmaIntegrations
       end
 
       Result.new(aspace, warnings, counts, date_preserved)
+    end
+
+    # Decodes one level of XML character references in every subfield of an
+    # ArchivesSpace record, in place. Only one level, so text that genuinely
+    # means "&amp;" (stored as `&amp;amp;`) survives as written. Runs before
+    # anything is copied from Alma, whose text is left exactly as Alma holds it.
+    def decode_entities(record)
+      record.xpath('./datafield/subfield').each do |subfield|
+        text = subfield.text
+        next unless text.include?('&')
+
+        decoded = text.gsub(ENTITY) do
+          ref = Regexp.last_match(1)
+          if ref.start_with?('#')
+            codepoint = ref[1].casecmp?('x') ? ref[2..-1].to_i(16) : ref[1..-1].to_i
+            valid_codepoint?(codepoint) ? [codepoint].pack('U') : Regexp.last_match(0)
+          else
+            NAMED_ENTITIES[ref.downcase]
+          end
+        end
+
+        subfield.content = decoded unless decoded == text
+      end
+
+      record
     end
 
     # Stamps a prepared record with Alma's own 005, the Date and Time of Latest
@@ -91,6 +131,15 @@ module AlmaIntegrations
     end
 
     private
+
+    # Characters XML 1.0 can carry. Anything else stays as the reference it
+    # arrived as rather than producing a record Nokogiri cannot serialise.
+    def valid_codepoint?(codepoint)
+      codepoint == 0x9 || codepoint == 0xA || codepoint == 0xD ||
+        (codepoint >= 0x20 && codepoint <= 0xD7FF) ||
+        (codepoint >= 0xE000 && codepoint <= 0xFFFD) ||
+        (codepoint >= 0x10000 && codepoint <= 0x10FFFF)
+    end
 
     # Every XPath below is written against un-namespaced element names, so the
     # record has to be normalised before any of them will match.
